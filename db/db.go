@@ -41,7 +41,7 @@ func InitPool(connString string, logger *slog.Logger) (*DB, error) {
 	// Verify the database engine is responsive
 	if err := pool.Ping(ctx); err != nil {
 		pool.Close()
-		logger.Error("database unreachable on ping", "error", err)
+		return nil, fmt.Errorf("database unreachable on ping: %w", err)
 	}
 
 	logger.Info("Successfully connected to TimescaleDB connection pool")
