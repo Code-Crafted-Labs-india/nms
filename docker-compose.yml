@@ -1,0 +1,32 @@
+services:
+  timescaledb:
+    image: timescale/timescaledb:latest-pg15
+    container_name: nms-timescaledb
+    environment:
+      - POSTGRES_USER=postgres
+      - POSTGRES_PASSWORD=yoursecurepassword
+      - POSTGRES_DB=nms_db
+    ports:
+      - "5432:5432"
+    volumes:
+      - nms_db_data:/var/lib/postgresql/data
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d nms_db"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  telegraf:
+    image: telegraf:latest
+    container_name: nms-telegraf
+    depends_on:
+      timescaledb:
+        condition: service_healthy
+    volumes:
+      - ./telegraf.conf:/etc/telegraf/telegraf.conf:ro
+    restart: unless-stopped
+
+volumes:
+  nms_db_data:
+    driver: local
