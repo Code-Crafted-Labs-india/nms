@@ -8,6 +8,7 @@ This repository contains the core pipeline configurations and custom backend app
 
 The NMS is structured as a decoupled, multi-tier data pipeline designed to prevent blocking bottlenecks, guarantee processing throughput, and safely scale to thousands of network managed elements.
 
+```text
    ┌────────────────────────────────────────────────────────┐
    │             Network Managed Elements Network           │
    │     (Core/Access Switches, Edge Routers, SFPs)        │
@@ -38,6 +39,7 @@ The NMS is structured as a decoupled, multi-tier data pipeline designed to preve
    │                 Grafana Visualization                  │
    │        (Live Dashboards & Threshold Alerting)          │
    └────────────────────────────────────────────────────────┘
+```
 
 ### Component Breakdown
 1. **Collector Ingestion Layer (Telegraf):** An optimized metric collector agent tasked with pulling standard tabular interface indicators every 30 seconds via SNMPv2c.
@@ -54,17 +56,20 @@ The custom Go daemon uses a structured, concurrent architecture to isolate proce
 
 
 
+```text
 nms-middleware/
 ├── main.go             # Application initialization, environment parsing, and system context orchestration
 ├── db/
 │   └── database.go     # Thread-safe pgxpool implementation managing active connection states
 └── ping/
-└── pinger.go       # Goroutine pool executing native OS ping execution and stripping CIDR network masks
+    └── pinger.go       # Goroutine pool executing native OS ping execution and stripping CIDR network masks
+```
 
 
 ### Core Execution Flow Mapping
 
 
+```text
 [StartSweeper] ──► Ticker (15s) ──► [fetchMonitoredDevices] ──► SQL: HOST(ip_address)
 │
 (Returns Pure IPs)
@@ -86,6 +91,7 @@ Command Execution                        Context Timeout Watch
 │
 ▼
 SQL: INSERT INTO hypertable
+```
 
 
 
@@ -95,7 +101,7 @@ SQL: INSERT INTO hypertable
 
 The complete structural SQL build script utilized to model the inventory nodes and generate the corresponding TimescaleDB hypertables:
 
-sql
+```sql
 -- Enable TimescaleDB Extension
 CREATE EXTENSION IF NOT EXISTS timescaledb CASCADE;
 
@@ -168,6 +174,7 @@ INSERT INTO devices (hostname, ip_address, device_type, location) VALUES
 ('mock-switch-01', '192.168.10.10', 'Switch', 'Virtual-Rack-1'),
 ('mock-router-02', '192.168.10.20', 'Router', 'Virtual-Rack-2')
 ON CONFLICT DO NOTHING;
+```
 
 
 
@@ -191,10 +198,11 @@ The system components actively capture raw metrics that formulate the functional
 
 Spin up the coordinated core pipeline infrastructure stack using Docker Compose:
 
-bash
+```bash
 # Erase old volumes and bring up all containers in a clean detached state
 docker compose down -v
 docker compose up --build -d
+```
 
 
 
@@ -202,8 +210,9 @@ docker compose up --build -d
 
 To verify that the Go application loop and the database integration layer are writing transactions correctly, monitor the container stream output:
 
-bash
+```bash
 docker compose logs -f nms-middleware
+```
 
 
 
@@ -211,14 +220,16 @@ docker compose logs -f nms-middleware
 
 Log straight into the relational engine to assert that raw metrics are correctly writing down to disk:
 
-bash
+```bash
 # Connect directly to the underlying database engine console instance
 docker exec -it nms-timescaledb psql -U postgres -d nms_db
+```
 
-sql
+```sql
 -- Query the time-series hypertable to assert metric ingestion
 SELECT time, device_id, icmp_status, icmp_rtt_ms 
 FROM device_health_metrics 
 ORDER BY time DESC 
 LIMIT 4;
+```
 
