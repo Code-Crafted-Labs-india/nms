@@ -1,121 +1,224 @@
-# Project Roadmap: Custom Network Management System (NMS)
+# Custom Enterprise Network Management System (NMS)
 
-This roadmap outlines the **4-month (16-week) enterprise implementation timeline** to deploy a high-performance Network Management System utilizing **Telegraf** for metric data ingestion, **TimescaleDB** for unified relational inventory and time-series storage, and **Grafana** for visualization and metric threshold alerts. Complex edge business logic (such as real-time SNMP Trap parsing, concurrent ICMP reachability checks, and notification webhook dispatching) will be executed by a lightweight, concurrent **Custom Go Middleware Application**.
-
----
-
-## 🏗️ System Architecture Overview
-
-The system architecture is structured as a decoupled data pipeline divided into four distinct layers to ensure high processing throughput, strict separation of concerns, and reliable horizontal scalability:
-
-```
-    [ Network Devices ] (Switches, Routers, Firewalls)
-          │
-          ├───(SNMP Polling & Syslog)──► [ Telegraf Ingestion Layer ] ──┐
-          │                                                             ▼
-          └───(SNMP Traps & ICMP Ping)──► [ Custom Go Middleware ] ──► [ TimescaleDB ]
-                                                                             │
-                                                                       (Live Querying)
-                                                                             ▼
-                                                                     [ Grafana UI & Alerts ]
-
-```
+This repository contains the core pipeline configurations and custom backend applications for an enterprise-grade Network Management System (NMS). The system leverages **Telegraf** for metric data ingestion, **TimescaleDB** for unified relational inventory and high-velocity time-series processing, and a concurrent **Custom Go Middleware Service** to execute high-speed ICMP sweeps and handle advanced alert routing.
 
 ---
 
-## 🗓️ Phase-by-Phase Roadmap
+## 🏗️ High-Level Architecture (HLD)
 
-### 🏁 Phase 1: Environment Provisioning, TimescaleDB Schema & Core Ingestion
+The NMS is structured as a decoupled, multi-tier data pipeline designed to prevent blocking bottlenecks, guarantee processing throughput, and safely scale to thousands of network managed elements.
 
-**Timeline:** Month 1 (Weeks 1 – 4)
+   ┌────────────────────────────────────────────────────────┐
+   │             Network Managed Elements Network           │
+   │     (Core/Access Switches, Edge Routers, SFPs)        │
+   └──────────────┬──────────────────────────┬──────────────┘
+                  │                          │
+          (SNMP Polling)               (ICMP Pings &
+                │                       SNMP Traps)
+                ▼                            ▼
+   ┌──────────────────────────┐  ┌──────────────────────────┐
+   │     Telegraf Engine      │  │   Custom Go Middleware   │
+   │    (Collector Layer)     │  │  (High-Throughput Core)  │
+   └────────────┬─────────────┘  └────────────┬─────────────┘
+                │                             │
+           (SQL Inserts)                 (SQL Inserts)
+                └──────────────┬──────────────┘
+                               ▼
+   ┌────────────────────────────────────────────────────────┐
+   │                      TimescaleDB                       │
+   │  ┌────────────────────────┐  ┌──────────────────────┐  │
+   │  │ Relational Directory   │  │ Time-Series Metrics  │  │
+   │  │ (Inventory, Devices)   │  │ (Hypertables, Chunks)│  │
+   │  └────────────────────────┘  └──────────────────────┘  │
+   └───────────────────────────┬────────────────────────────┘
+                               │
+                         (SQL Queries)
+                               ▼
+   ┌────────────────────────────────────────────────────────┐
+   │                 Grafana Visualization                  │
+   │        (Live Dashboards & Threshold Alerting)          │
+   └────────────────────────────────────────────────────────┘
 
-**Focus:** Core infrastructure setup, foundational data modeling, and core network availability/reachability tracking.
-
-* **Milestone 1:** Core Pipeline Operational & Availability Metrics Storing Cleanly.
-* **Tasks & Deliverables:**
-* **TimescaleDB Provisioning:** Install PostgreSQL and enable the TimescaleDB extension on designated hosting servers.
-* **Schema Design:** Design the primary relational tables for corporate network inventory, device metadata, and active alarm states. Configure TimescaleDB `Hypertables` partitioned by time vectors to handle rapid time-series metrics.
-* **Telegraf SNMP Engine Setup:** Deploy Telegraf agents and configure the `inputs.snmp` plugin. Import foundational MIBs (`MIB-II`, `IF-MIB`) to parse interface states.
-* **Availability Polling Core (Alarms 1, 2, 4, 5):**
-* Map regular polling intervals for interface state transitions (`ifOperStatus` vs `ifAdminStatus`) and SNMP connection handshakes.
-* Set up the base framework to evaluate and trigger **Device Down**, **Interface Down**, and **SNMP Communication Failure** conditions.
-
-
-* **Optional Syslog Ingestion (Alarm 10):** Spin up Telegraf's `inputs.syslog` network socket listeners to parse and centralize raw device operating system logs into an indexed DB table.
-
-
-
----
-
-### 🧠 Phase 2: Custom Go Middleware (ICMP Engine, Trap Receiver & Advanced Alerts)
-
-**Timeline:** Month 2 (Weeks 5 – 8)
-
-**Focus:** Coding the concurrent Go microservice to handle high-frequency pinging, instant SNMP trap interception, and complex state alerts.
-
-* **Milestone 2:** Go Core Engine Live & Real-Time Event Trap Parsing Verified.
-* **Tasks & Deliverables:**
-* **Go Architecture Deployment:** Initialize the custom Go daemon. Set up optimized connection pooling via `pgxpool` to safely write parallel records into TimescaleDB.
-* **High-Speed ICMP Engine (Alarm 5):** Build a highly concurrent, goroutine-backed ping processor to scan all network IP nodes at short intervals for precise **Device Reachability Monitoring** (latency/packet loss) without bottlenecking.
-* **Asynchronous SNMP Trap Receiver:** Program the Go service to listen for immediate inbound traps pushed by devices for real-time anomalies:
-* **STP Topology Change Alert (Alarm 11):** Parse TCN trap events to flag spanning-tree realignments.
-* **Loop Detection & Broadcast Storms (Alarms 12, 13):** Intercept MAC flapping traps or high-velocity bandwidth traps indicating switch loop states.
-* **Port Security & Access Violations (Alarms 14, 15, 16, 18):** Capture unauthorized MAC traps, Rogue DHCP Offer flags (Snooping), Dynamic ARP Inspection drops, and consecutive AAA local login failures.
-
-
-
-
+### Component Breakdown
+1. **Collector Ingestion Layer (Telegraf):** An optimized metric collector agent tasked with pulling standard tabular interface indicators every 30 seconds via SNMPv2c.
+2. **Custom Concurrency Layer (Go Middleware):** A highly concurrent, stateless Go binary daemon that runs parallel goroutines to sweep device nodes for reachability (every 15 seconds) and handles backend database interaction layers.
+3. **Unified Storage Layer (TimescaleDB):** A specialized PostgreSQL instance leveraging hypertables partitioned by time vectors to seamlessly ingest hundreds of thousands of entries per second while maintaining standard relational referential integrity.
+4. **Visualization Layer (Grafana):** An analytics visualization platform that continuously polls TimescaleDB using native SQL queries to provide real-time NOC dashboards and fire threshold-based notifications.
 
 ---
 
-### 📊 Phase 3: Performance Performance Tracking & Grafana Dashboard Assembly
+## 🛠️ Low-Level Design (LLD)
 
-**Timeline:** Month 3 (Weeks 9 – 12)
-
-**Focus:** Tuning utilization formulas, capturing hardware/optical performance bounds, and constructing frontend views.
-
-* **Milestone 3:** Core Alarm Matrix Fully Visualized on Production Dashboards.
-* **Tasks & Deliverables:**
-* **Utilization Calculations (Alarms 3, 6, 7):** Fine-tune Telegraf delta calculations using 64-bit high-capacity counters (`ifHCInOctets`/`ifHCOutOctets`) to generate accurate **Port Utilization Graphs** and monitor **CRC/Error Rates** without risk of counter overflows.
-* **Optical Laser Diagnostics (Alarms 8, 17):** Map vendor-specific Digital Optical Monitoring (DOM) OIDs to track SFP Transmit/Receive laser power ($dBm$). Implement relational logic in Go or DB queries to correlate a sudden loss of optical light with link downs to flag explicit **Fiber Cut Detections**.
-* **Configuration Mismatches (Alarm 19):** Code comparison checks using LLDP/CDP cache metrics to cross-reference and flag **Interface Speed/Duplex Mismatches**.
-* **Grafana Dashboard Implementation:** Build two major production dashboards:
-* *NOC High-Level Matrix:* Device up/down matrices, immediate reachability heatmaps, and a real-time critical alert ticker fed directly from the Go service.
-* *Interface Engineering Layout:* Clean historical line/area graphs capturing utilization percentages, error rates, packet drops, and optical power trajectories.
+### Go Middleware Package Architecture
+The custom Go daemon uses a structured, concurrent architecture to isolate processing domains and prevent blocking conditions:
 
 
 
+nms-middleware/
+├── main.go             # Application initialization, environment parsing, and system context orchestration
+├── db/
+│   └── database.go     # Thread-safe pgxpool implementation managing active connection states
+└── ping/
+└── pinger.go       # Goroutine pool executing native OS ping execution and stripping CIDR network masks
 
 
----
-
-### 🚀 Phase 4: Notification Orchestration, Optimization & Final Handover
-
-**Timeline:** Month 4 (Weeks 13 – 16)
-
-**Focus:** Linking data thresholds to outgoing channels, data footprint tuning, and end-to-end stress testing.
-
-* **Milestone 4:** System Validation Under Load & Production Sign-off.
-* **Tasks & Deliverables:**
-* **Notification Engine Wiring:** Connect the Go middleware and Grafana Alerting engines to external endpoints:
-* **Telegram API Integration:** Instant notification payloads for critical events like *Device Down*, *Fiber Cuts*, or *Broadcast Storms*.
-* **SMTP Mail Gateways:** Weekly summaries of interface error logs and non-critical configuration alerts (e.g., NTP drifts or duplex mismatches).
+### Core Execution Flow Mapping
 
 
-* **Ticketing Webhooks:** Configure outgoing JSON webhook payloads to match target ticketing platforms (Jira Service Desk / ServiceNow) to automate ITIL incident generation on critical triggers.
-* **TimescaleDB Compression Policies:** Enable native TimescaleDB chunk compression on mature time-series tables to minimize disk footprints while keeping raw historical charts instantly readable.
-* **Scale Simulation & Tuning:** Stress-test the unified platform using simulated SNMP/ICMP loads to verify stability, optimizing Go concurrency parameters to guarantee fluid polling during extensive device outages.
-* **UAT & Deployment Handover:** Execute formal User Acceptance Testing workflows (simulating link drops, port violations, and loop traps). Package final operational handbooks, environment configuration scripts, and documentation layouts.
+[StartSweeper] ──► Ticker (15s) ──► [fetchMonitoredDevices] ──► SQL: HOST(ip_address)
+│
+(Returns Pure IPs)
+▼
+[executeParallelSweep]
+│
+(Spawns Go Routines)
+▼
+[pingTarget]
+│
+┌────────────────────┴────────────────────┐
+▼                                         ▼
+Command Execution                        Context Timeout Watch
+(exec.CommandContext)                         (context.WithTimeout)
+│                                         │
+└────────────────────┬────────────────────┘
+▼
+[savePingResult]
+│
+▼
+SQL: INSERT INTO hypertable
 
 
 
 ---
 
-## 📊 Summary Timeline Tracker
+## 🗄️ Relational & Time-Series Database Schema
 
-| Month | Weeks | Primary Objectives | Deliverable Checkpoint |
-| --- | --- | --- | --- |
-| **Month 1** | **1 - 4** | Platform VM installations, TimescaleDB structural tables, and basic Telegraf SNMP configuration. | Base device status and interface metric states logging clean entries to the DB layer. |
-| **Month 2** | **5 - 8** | Development of custom Go middleware application. Coding goroutine ping sweeps and the real-time SNMP Trap parsing daemon. | Real-time security, loop, and STP trap anomalies captured and classified instantly. |
-| **Month 3** | **9 - 12** | Tuning of utilization formulas, optical transceiver power arrays, and assembling Grafana panels. | Interactive NOC dashboards displaying port graphs, error trends, and fiber degradation lines. |
-| **Month 4** | **13 - 16** | Notification webhooks (Telegram/Email), ticketing workflows, database compression, and performance stress testing. | Production monitoring system fully validated against client specification, leading to project sign-off. |
+The complete structural SQL build script utilized to model the inventory nodes and generate the corresponding TimescaleDB hypertables:
+
+sql
+-- Enable TimescaleDB Extension
+CREATE EXTENSION IF NOT EXISTS timescaledb CASCADE;
+
+-- 1. RELATIONAL STRUCTURES: Core Inventory Management
+CREATE TABLE devices (
+    id SERIAL PRIMARY KEY,
+    hostname VARCHAR(255) NOT NULL UNIQUE,
+    ip_address INET NOT NULL UNIQUE,
+    snmp_version VARCHAR(10) DEFAULT 'v2c',
+    snmp_community VARCHAR(100) DEFAULT 'public',
+    device_type VARCHAR(50) CHECK (device_type IN ('Switch', 'Router', 'Firewall')),
+    location VARCHAR(255),
+    is_monitored BOOLEAN DEFAULT TRUE,
+    created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE TABLE interfaces (
+    id SERIAL PRIMARY KEY,
+    device_id INT REFERENCES devices(id) ON DELETE CASCADE,
+    if_index INT NOT NULL,
+    if_descr VARCHAR(255) NOT NULL,
+    if_type INT,
+    speed BIGINT,
+    UNIQUE(device_id, if_index)
+);
+
+-- 2. TIME-SERIES STRUCTURES: Metric Accumulation Hypertables
+CREATE TABLE device_health_metrics (
+    time TIMESTAMPTZ NOT NULL,
+    device_id INT NOT NULL,
+    icmp_status INT DEFAULT 1,             -- 1 = Up, 0 = Down
+    icmp_rtt_ms DOUBLE PRECISION,
+    icmp_packet_loss DOUBLE PRECISION,
+    cpu_utilization DOUBLE PRECISION,       -- Captured via SNMP Polling
+    memory_utilization DOUBLE PRECISION,    -- Captured via SNMP Polling
+    ntp_skew_seconds DOUBLE PRECISION
+);
+
+CREATE TABLE interface_performance_metrics (
+    time TIMESTAMPTZ NOT NULL,
+    interface_id INT NOT NULL,
+    if_oper_status INT NOT NULL,           -- 1 = Up, 2 = Down, 3 = Testing
+    if_admin_status INT NOT NULL,
+    rx_bytes_delta BIGINT,
+    tx_bytes_delta BIGINT,
+    rx_errors_delta INT,
+    tx_errors_delta INT
+);
+
+CREATE TABLE network_events (
+    time TIMESTAMPTZ NOT NULL,
+    device_id INT REFERENCES devices(id),
+    alarm_id INT NOT NULL,
+    severity VARCHAR(20) CHECK (severity IN ('INFO', 'WARNING', 'CRITICAL')),
+    message TEXT,
+    resolved BOOLEAN DEFAULT FALSE
+);
+
+-- 3. TIMESCALEDB HYPERTABLE TRANSLATION
+SELECT create_hypertable('device_health_metrics', 'time', migration_check => false);
+SELECT create_hypertable('interface_performance_metrics', 'time', migration_check => false);
+SELECT create_hypertable('network_events', 'time', migration_check => false);
+
+-- 4. PERFORMANCE TUNING INDEXES
+CREATE INDEX idx_device_metrics_lookup ON device_health_metrics (device_id, time DESC);
+CREATE INDEX idx_interface_metrics_lookup ON interface_performance_metrics (interface_id, time DESC);
+
+-- 5. SEED DATA (Virtual Network Verification Elements)
+INSERT INTO devices (hostname, ip_address, device_type, location) VALUES
+('mock-switch-01', '192.168.10.10', 'Switch', 'Virtual-Rack-1'),
+('mock-router-02', '192.168.10.20', 'Router', 'Virtual-Rack-2')
+ON CONFLICT DO NOTHING;
+
+
+
+---
+
+## 📈 Covered System Alarms Blueprint
+
+The system components actively capture raw metrics that formulate the functional signature for **5 key network alarms**:
+
+1. **Alarm 1 (Device Down):** Triggered when Go's sweeper sets `icmp_status = 0` and `icmp_packet_loss = 100.0`.
+2. **Alarm 2 (Interface Status Link Down):** Tracked by Telegraf SNMP polling inside `snmp_interface` when `ifOperStatus = 2`.
+3. **Alarm 3 (High CPU / Memory Exhaustion):** Extracted via Telegraf collecting OID `1.3.6.1.4.1.2021.11.11.0` and `1.3.6.1.4.1.2021.4.11.0`.
+4. **Alarm 4 (State Mismatch):** Generated via SQL checking for admin/oper misalignment (`ifAdminStatus = 1` AND `ifOperStatus = 2`).
+5. **Alarm 5 (Device Performance Degradation):** Checked dynamically via the continuous time-series logging of `icmp_rtt_ms`.
+
+---
+
+## 🚀 Deployment & Operational Verification
+
+### Complete Environment Initialization
+
+Spin up the coordinated core pipeline infrastructure stack using Docker Compose:
+
+bash
+# Erase old volumes and bring up all containers in a clean detached state
+docker compose down -v
+docker compose up --build -d
+
+
+
+### Streaming the Real-time Event Pipeline Logs
+
+To verify that the Go application loop and the database integration layer are writing transactions correctly, monitor the container stream output:
+
+bash
+docker compose logs -f nms-middleware
+
+
+
+### Manual Metric Inspection via Interactive Shell
+
+Log straight into the relational engine to assert that raw metrics are correctly writing down to disk:
+
+bash
+# Connect directly to the underlying database engine console instance
+docker exec -it nms-timescaledb psql -U postgres -d nms_db
+
+sql
+-- Query the time-series hypertable to assert metric ingestion
+SELECT time, device_id, icmp_status, icmp_rtt_ms 
+FROM device_health_metrics 
+ORDER BY time DESC 
+LIMIT 4;
+
