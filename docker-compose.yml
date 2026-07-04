@@ -8,6 +8,8 @@ services:
       - POSTGRES_DB=nms_db
     ports:
       - "5432:5432"
+    networks:
+      - nms_net
     volumes:
       - nms_db_data:/var/lib/postgresql/data
     restart: unless-stopped
@@ -23,9 +25,61 @@ services:
     depends_on:
       timescaledb:
         condition: service_healthy
+    networks:
+      - nms_net
     volumes:
       - ./telegraf.conf:/etc/telegraf/telegraf.conf:ro
     restart: unless-stopped
+
+  # =========================================================================
+  # NEW: GO MIDDLEWARE SERVICE CONTAINER
+  # =========================================================================
+  nms-middleware:
+    build: .
+    container_name: nms-middleware
+    # Elevated network permissions inside docker to send raw ICMP packets
+    cap_add:
+      - NET_ADMIN
+      - NET_RAW
+    sysctls:
+      - net.ipv4.ping_group_range=0 2147483647
+    depends_on:
+      timescaledb:
+        condition: service_healthy
+    networks:
+      - nms_net
+    restart: unless-stopped
+
+  # =========================================================================
+  # SIMULATED DUMMY NETWORK DEVICES
+  # =========================================================================
+  mock-switch-01:
+    image: ubuntu:22.04
+    container_name: mock-switch-01
+    command: >
+      bash -c "apt-get update && apt-get install -y snmpd iputils-ping && 
+      echo 'rocommunity public' > /etc/snmp/snmpd.conf &&
+      service snmpd restart && tail -f /dev/null"
+    networks:
+      nms_net:
+        ipv4_address: 192.168.10.10
+
+  mock-router-02:
+    image: ubuntu:22.04
+    container_name: mock-router-02
+    command: >
+      bash -c "apt-get update && apt-get install -y snmpd iputils-ping && 
+      echo 'rocommunity public' > /etc/snmp/snmpd.conf &&
+      service snmpd restart && tail -f /dev/null"
+    networks:
+      nms_net:
+        ipv4_address: 192.168.10.20
+
+networks:
+  nms_net:
+    ipam:
+      config:
+        - subnet: 192.168.10.0/24
 
 volumes:
   nms_db_data:
