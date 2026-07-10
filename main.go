@@ -4,6 +4,8 @@ import (
 	"context"
 	"flag"
 	"log/slog"
+
+	// "nms-middleware/alert"
 	"nms-middleware/db"
 	"nms-middleware/ping"
 	"os"
@@ -57,6 +59,11 @@ func main() {
 	// Spin up the background pinger loop service
 	pingSvc := ping.NewPingEngine(app.db, app.logger)
 	go pingSvc.StartSweeper(ctx, 15*time.Second) // Poll inventory targets every 15 seconds
+
+	// Spin up the background evaluator loop service
+	// evaluatorService := alert.NewEvaluateEngine(app.db, app.logger, strategies)
+	// go evaluatorService.
+
 	// Graceful shutdown channel
 	quit := make(chan os.Signal, 1)
 	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
