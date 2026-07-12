@@ -1,0 +1,14 @@
+apiVersion: 1
+
+datasources:
+  - name: TimescaleDB
+    type: postgres
+    access: proxy
+    url: timescaledb:5432 # Matches the container name in your docker-compose
+    user: postgres
+    database: nms_db
+    secureJsonData:
+      password: ${DB_PASS} # Grafana automatically fills this using your Compose env variable!
+    jsonData:
+      sslmode: "disable"
+      timescaledb: true # Tells Grafana to unlock specialized hypertable optimizing features

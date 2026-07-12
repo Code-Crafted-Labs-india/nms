@@ -75,6 +75,21 @@ services:
       nms_net:
         ipv4_address: 192.168.10.20
 
+  grafana:
+    image: grafana/grafana-oss:latest
+    container_name: nms-grafana
+    ports:
+      - "3000:3000"
+    environment:
+      - GF_SECURITY_ADMIN_PASSWORD=${GRAFANA_ADMIN_PASSWORD:-admin}
+      - DB_PASS=${DB_PASSWORD} # Pulls from your local .env file
+    volumes:
+      - grafana_storage:/var/lib/grafana
+      - ./grafana/provisioning:/etc/grafana/provisioning:ro
+    networks:
+      - nms_net
+    restart: unless-stopped
+
 networks:
   nms_net:
     ipam:
@@ -82,5 +97,6 @@ networks:
         - subnet: 192.168.10.0/24
 
 volumes:
+  grafana_storage:
   nms_db_data:
     driver: local

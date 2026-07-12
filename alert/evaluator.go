@@ -21,53 +21,6 @@ func NewEvaluateEngine(db *db.DB, logger *slog.Logger, strategies []AlarmStrateg
 	}
 }
 
-// StartWorkerPool spins up your fixed consumer threads
-func (eve *EvaluateEngine) StartWorkerPool(ctx context.Context, workerCount int, interval time.Duration) {
-	// 1. TODO: Create your buffered jobs channel
-	jobChannel := make(chan Job, 100)
-	// 2. TODO: Spawn your fixed number of worker goroutines
-	for i := range workerCount {
-		go eve.worker(ctx, i, jobChannel)
-	}
-	// 3. TODO: Run a ticker loop that feeds device IDs into the channel
-	ticker := time.NewTicker(interval)
-	go func() {
-		defer ticker.Stop()
-		defer close(jobChannel) // ! safe tear down signal for worker ranges
-
-		for {
-			select {
-			case <-ctx.Done():
-				eve.logger.Warn("Shoutdown signal intercepted. Terminating evaluation producer loop.")
-				return
-
-			case <-ticker.C:
-				eve.logger.Info("Interval tick hit. Orchestrating device evaluation passes.")
-
-				// TODO: Replace this seed payload with your real relational database query:
-				devices, err := eve.db.Pool.Query(ctx, "SELECT * FROM devices")
-				if err != nil {
-					eve.logger.Warn("Some error occured while fetching data from devices", err)
-				}
-				eve.logger.Info("fetched devices response", (devices))
-
-				// For now, we simulate writing a single node target event down the data highway
-				select {
-				case jobChannel <- Job{DeviceID: 123, Timestamp: time.Now()}:
-				default:
-					eve.logger.Error("Job channel buffer is full! Evaluation events are dropping. Scale your worker pool configuration.")
-				}
-			}
-		}
-
-	}()
-
-	eve.logger.Info("Starting concurrent native evaluation loop", "interval", interval.String())
-
-	jobChannel <- Job{DeviceID: 123, Timestamp: time.Now()}
-
-}
-
 func (eve *EvaluateEngine) worker(ctx context.Context, id int, jobs <-chan Job) {
 
 	for job := range jobs {
@@ -79,4 +32,58 @@ func (eve *EvaluateEngine) worker(ctx context.Context, id int, jobs <-chan Job) 
 			}
 		}
 	}
+}
+
+// StartWorkerPool spins up your fixed consumer threads
+func (eve *EvaluateEngine) StartWorkerPool(ctx context.Context, workerCount int, interval time.Duration) {
+
+	jobChannel := make(chan Job, 100)
+	for i := range workerCount {
+		go eve.worker(ctx, i, jobChannel)
+	}
+	ticker := time.NewTicker(interval)
+
+	go func() {
+		defer ticker.Stop()
+		defer close(jobChannel) // ! safe tear down signal for worker ranges
+
+		eve.logger.Info("Starting concurrent native evaluation loop", "interval", interval.String())
+
+		for {
+			select {
+			case <-ctx.Done():
+				eve.logger.Warn("Shoutdown signal intercepted. Terminating evaluation producer loop.")
+				return
+
+			case <-ticker.C:
+				eve.logger.Info("Interval tick hit. Orchestrating device evaluation passes.")
+
+				rows, err := eve.db.Pool.Query(ctx, "SELECT device_id FROM devices WHERE is_monitered = true")
+				if err != nil {
+					eve.logger.Error("Failed to fetch monitored devices from directory", "err", err)
+					continue
+				}
+
+				func() {
+					defer rows.Close()
+
+					now := time.Now()
+					for rows.Next() {
+						var deviceID int
+						if err := rows.Scan(&deviceID); err != nil {
+							eve.logger.Error("Failed to scan device ID row", "err", err)
+							continue
+						}
+
+						select {
+						case jobChannel <- Job{DeviceID: deviceID, Timestamp: now}:
+						default:
+							eve.logger.Error("Job queue saturated! Drops detected.", "device_id", deviceID)
+						}
+					}
+				}()
+			}
+		}
+
+	}()
 }

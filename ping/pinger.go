@@ -60,7 +60,7 @@ func (pe *PingEngine) StartSweeper(ctx context.Context, interval time.Duration) 
 }
 
 func (pe *PingEngine) fetchMonitoredDevices(ctx context.Context) ([]Target, error) {
-	rows, err := pe.db.Pool.Query(ctx, "SELECT id, ip_address::text FROM devices WHERE is_monitored = true")
+	rows, err := pe.db.SelectIdAndIp(ctx)
 	if err != nil {
 		return nil, err
 	}

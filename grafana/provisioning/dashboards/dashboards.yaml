@@ -1,0 +1,11 @@
+apiVersion: 1
+
+providers:
+  - name: 'NMS Dashboards'
+    orgId: 1
+    folder: 'Network Infrastructure' # The name of the folder inside the Grafana UI
+    type: file
+    disableDeletion: false
+    editable: true                 # Allows you to edit charts directly in the web UI
+    options:
+      path: /etc/grafana/provisioning/dashboards # Internal container path it scans

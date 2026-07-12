@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"time"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
@@ -54,4 +55,13 @@ func (db *DB) Close() {
 		db.Pool.Close()
 		db.logger.Info("TimescaleDB connection pool closed safely")
 	}
+}
+
+func (db *DB) SelectIdAndIp(ctx context.Context) (pgx.Rows, error) {
+	res, err := db.Pool.Query(ctx, "SELECT id, ip_address::text FROM devices WHERE is_monitored = true")
+	if err != nil {
+		return nil, err
+	}
+
+	return res, nil
 }
