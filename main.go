@@ -4,15 +4,18 @@ import (
 	"context"
 	"flag"
 	"log/slog"
-
-	// "nms-middleware/alert"
-	"nms-middleware/alert"
-	"nms-middleware/db"
-	"nms-middleware/ping"
+	"net/http"
 	"os"
 	"os/signal"
 	"syscall"
 	"time"
+
+	"nms-middleware/alert"
+	"nms-middleware/db"
+	"nms-middleware/discovery"
+	"nms-middleware/handlers"
+	"nms-middleware/ping"
+	"nms-middleware/topology"
 )
 
 type config struct {
@@ -63,6 +66,12 @@ func main() {
 	pingSvc := ping.NewPingEngine(app.db, app.logger)
 	go pingSvc.StartSweeper(ctx, 15*time.Second)
 
+	// Fire up the structural network graph mapping package engine
+	topology.StartTopologyEngine(app.db, 30*time.Second)
+
+	// Fire up the auto-discovery engine
+	discovery.StartDiscoveryEngine(database, 1*time.Minute)
+
 	strategies := []alert.AlarmStrategy{
 		alert.NewDeviceDownStrategy(logger, 1*time.Minute),
 		alert.NewLinkStateStrategy(logger),
@@ -73,6 +82,19 @@ func main() {
 
 	engine := alert.NewEvaluateEngine(database, logger, strategies)
 	engine.StartWorkerPool(ctx, 5, 30*time.Second)
+
+	// Initialize REST API multiplexer
+	mux := http.NewServeMux()
+	mux.HandleFunc("POST /api/devices", handlers.AddDeviceHandler(database))
+	mux.HandleFunc("PUT /api/devices/{id}", handlers.EditDeviceHandler(database))
+	mux.HandleFunc("DELETE /api/devices/{id}", handlers.DeleteDeviceHandler(database))
+
+	go func() {
+		app.logger.Info("Starting REST API server on :8080")
+		if err := http.ListenAndServe(":8080", mux); err != nil && err != http.ErrServerClosed {
+			app.logger.Error("REST API server failed", "error", err)
+		}
+	}()
 
 	app.logger.Info("NMS Backend Middleware is fully operational. Press Ctrl+C to terminate.")
 
