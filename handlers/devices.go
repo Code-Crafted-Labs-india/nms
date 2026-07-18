@@ -18,6 +18,18 @@ type DevicePayload struct {
 
 func AddDeviceHandler(database *db.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
+		// 1. Enable CORS so the browser allows the Grafana UI to talk to port 8080
+		w.Header().Set("Access-Control-Allow-Origin", "*")
+		w.Header().Set("Access-Control-Allow-Methods", "POST, OPTIONS")
+		w.Header().Set("Access-Control-Allow-Headers", "Content-Type")
+
+		// 2. Handle the browser's automatic preflight check
+		if r.Method == http.MethodOptions {
+			w.WriteHeader(http.StatusOK)
+			return
+		}
+
+		// 3. Decode the incoming JSON payload
 		var payload DevicePayload
 		if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
 			log.Printf("[API Error] Failed to decode add device payload: %v", err)
@@ -25,14 +37,17 @@ func AddDeviceHandler(database *db.DB) http.HandlerFunc {
 			return
 		}
 
+		// 4. Validate required fields
 		if payload.Hostname == "" || payload.IPAddress == "" {
 			http.Error(w, "Hostname and IPAddress are required", http.StatusBadRequest)
 			return
 		}
 
+		// 5. Persist directly to the inventory catalog
 		_, err := database.Pool.Exec(r.Context(), `
 			INSERT INTO devices (hostname, ip_address, device_type, snmp_community, snmp_version, is_monitored)
-			VALUES ($1, $2, $3, $4, $5, true);
+			VALUES ($1, $2, $3, $4, $5, true)
+			ON CONFLICT DO NOTHING;
 		`, payload.Hostname, payload.IPAddress, payload.DeviceType, payload.SnmpCommunity, payload.SnmpVersion)
 
 		if err != nil {

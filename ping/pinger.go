@@ -3,9 +3,14 @@ package ping
 import (
 	"context"
 	"log/slog"
-	"os/exec"
+	"net"
+	"os"
+	"strings"
 	"sync"
 	"time"
+
+	"golang.org/x/net/icmp"
+	"golang.org/x/net/ipv4"
 
 	"nms-middleware/db"
 )
@@ -93,29 +98,72 @@ func (pe *PingEngine) executeParallelSweep(ctx context.Context, targets []Target
 }
 
 func (pe *PingEngine) pingTarget(ctx context.Context, t Target, timestamp time.Time) {
-	// 1. Set a tight command context deadline (2 seconds absolute execution limit)
-	cmdCtx, cancel := context.WithTimeout(ctx, 2*time.Second)
-	defer cancel()
+	icmpStatus := 0
+	packetLoss := 100.0
+	rtt := 0.0
 
-	// Run native ping utility: -c 2 (2 packets), -W 1 (1 second timeout)
-	cmd := exec.CommandContext(cmdCtx, "ping", "-c", "2", "-W", "1", t.IPAddress)
+	// 1. Strip CIDR mask if present from IPAddress
+	ipStr := strings.Split(t.IPAddress, "/")[0]
 
-	err := cmd.Run()
-
-	icmpStatus := 1
-	packetLoss := 0.0
-
-	// 2. If err != nil, the binary exited with non-zero status (means packets dropped or timed out)
+	// 2. Open ICMP connection on raw socket
+	c, err := icmp.ListenPacket("ip4:icmp", "0.0.0.0")
 	if err != nil {
-		icmpStatus = 0
-		packetLoss = 100.0
-		pe.logger.Warn("device path unreachable or target down", "ip", t.IPAddress)
-	} else {
-		pe.logger.Info("device path responsive, sweep transaction verified", "ip", t.IPAddress)
+		pe.logger.Warn("failed to listen for icmp on raw socket", "ip", ipStr, "error", err)
+		pe.savePingResult(ctx, timestamp, t.DeviceID, icmpStatus, rtt, packetLoss)
+		return
+	}
+	defer c.Close()
+
+	// 3. Construct ICMP Echo message
+	msg := icmp.Message{
+		Type: ipv4.ICMPTypeEcho, Code: 0,
+		Body: &icmp.Echo{
+			ID: os.Getpid() & 0xffff, Seq: 1,
+			Data: []byte("HELLO-NMS"),
+		},
+	}
+	wb, err := msg.Marshal(nil)
+	if err != nil {
+		pe.logger.Warn("failed to marshal icmp message", "ip", ipStr, "error", err)
+		pe.savePingResult(ctx, timestamp, t.DeviceID, icmpStatus, rtt, packetLoss)
+		return
 	}
 
-	// 3. Force commit directly down to storage layer
-	pe.savePingResult(ctx, timestamp, t.DeviceID, icmpStatus, 0.5, packetLoss)
+	dst, err := net.ResolveIPAddr("ip4", ipStr)
+	if err != nil {
+		pe.logger.Warn("failed to resolve ip", "ip", ipStr, "error", err)
+		pe.savePingResult(ctx, timestamp, t.DeviceID, icmpStatus, rtt, packetLoss)
+		return
+	}
+
+	// 4. Set a tight read/write deadline
+	c.SetDeadline(time.Now().Add(2 * time.Second))
+
+	start := time.Now()
+	if _, err := c.WriteTo(wb, dst); err != nil {
+		pe.logger.Warn("failed to write icmp message", "ip", ipStr, "error", err)
+		pe.savePingResult(ctx, timestamp, t.DeviceID, icmpStatus, rtt, packetLoss)
+		return
+	}
+
+	rb := make([]byte, 1500)
+	n, _, err := c.ReadFrom(rb)
+	if err != nil {
+		pe.logger.Warn("device path unreachable or target down", "ip", ipStr)
+	} else {
+		rm, err := icmp.ParseMessage(ipv4.ICMPTypeEchoReply.Protocol(), rb[:n])
+		if err == nil && rm.Type == ipv4.ICMPTypeEchoReply {
+			icmpStatus = 1
+			packetLoss = 0.0
+			rtt = float64(time.Since(start).Milliseconds())
+			pe.logger.Info("device path responsive, sweep transaction verified", "ip", ipStr, "rtt_ms", rtt)
+		} else {
+			pe.logger.Warn("invalid icmp reply received", "ip", ipStr)
+		}
+	}
+
+	// 5. Force commit directly down to storage layer
+	pe.savePingResult(ctx, timestamp, t.DeviceID, icmpStatus, rtt, packetLoss)
 }
 
 func (pe *PingEngine) savePingResult(ctx context.Context, t time.Time, deviceID int, status int, rtt float64, loss float64) {

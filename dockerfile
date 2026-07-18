@@ -1,7 +1,7 @@
 FROM golang:1.25-alpine
 
-# Install build dependencies and raw socket permissions utilities via apk
-RUN apk update && apk add --no-cache iputils
+# Install build dependencies, ping utilities, and file capability management tools
+RUN apk update && apk add --no-cache iputils libcap
 
 WORKDIR /app
 
@@ -14,6 +14,9 @@ COPY . .
 
 # Build the Go application binary
 RUN go build -o nms-middleware .
+
+# Grant the raw network capabilities to the compiled Go binary explicitly
+RUN setcap cap_net_raw=+ep nms-middleware
 
 # Execute the binary
 CMD ["./nms-middleware", "-db-dsn", "postgres://postgres:yoursecurepassword@timescaledb:5432/nms_db?sslmode=disable", "-env", "development"]

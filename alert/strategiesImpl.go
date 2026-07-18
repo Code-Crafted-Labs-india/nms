@@ -68,8 +68,8 @@ func (d *DeviceDownStrategy) Evaluate(ctx context.Context, database *db.DB, devi
 		d.logger.Warn("Critical threshold breach! Registering fresh outage event.", "device_id", deviceID)
 
 		insertQuery := `
-            INSERT INTO network_events (time, device_id, alarm_id, severity, message, resolved) 
-            VALUES (NOW(), $1, $2, 'CRITICAL', 'Device failed to respond to concurrent ICMP sweeps over 60s window.', false);`
+            INSERT INTO network_events (time, device_id, alarm_id, event_type, severity, details, resolved) 
+            VALUES (NOW(), $1, $2, 'device_down', 'CRITICAL', 'Device failed to respond to concurrent ICMP sweeps over 60s window.', false);`
 
 		_, insertErr := database.Pool.Exec(ctx, insertQuery, deviceID, alarmID)
 		if insertErr != nil {
@@ -100,13 +100,14 @@ func (s *LinkStateStrategy) Evaluate(ctx context.Context, database *db.DB, devic
 	const alarmID = 2
 
 	// Fetch the latest interface operational statuses for this device
+	// Corrected placement of DISTINCT ON
 	query := `
-		SELECT interface_id, if_descr, if_oper_status 
-		FROM interface_performance_metrics ipm
-		JOIN interfaces i ON ipm.interface_id = i.id
-		WHERE i.device_id = $1 AND ipm.time >= NOW() - INTERVAL '1 minute'
-		DISTINCT ON (interface_id)
-		ORDER BY interface_id, ipm.time DESC;`
+        SELECT DISTINCT ON (interface_id) 
+               interface_id, if_descr, if_oper_status 
+        FROM interface_performance_metrics ipm
+        JOIN interfaces i ON ipm.interface_id = i.id
+        WHERE i.device_id = $1 AND ipm.time >= NOW() - INTERVAL '1 minute'
+        ORDER BY interface_id, ipm.time DESC;`
 
 	rows, err := database.Pool.Query(ctx, query, deviceID)
 	if err != nil {
@@ -135,10 +136,12 @@ func (s *LinkStateStrategy) Evaluate(ctx context.Context, database *db.DB, devic
 				s.logger.Warn("LinkStateStrategy: Interface link down detected!", "device_id", deviceID, "interface", ifDescr)
 
 				insertQuery := `
-					INSERT INTO network_events (time, device_id, alarm_id, severity, message, resolved) 
-					VALUES (NOW(), $1, $2, 'WARNING', $3, false);`
+					INSERT INTO network_events (time, device_id, alarm_id, event_type, severity, details, resolved) 
+					VALUES (NOW(), $1, $2, 'link_down', 'WARNING', $3, false);`
 				msg := "Interface " + ifDescr + " (ID: " + string(rune(interfaceID)) + ") has changed state to DOWN."
-				_, _ = database.Pool.Exec(ctx, insertQuery, deviceID, alarmID, msg)
+				if _, execErr := database.Pool.Exec(ctx, insertQuery, deviceID, alarmID, msg); execErr != nil {
+					s.logger.Error("LinkStateStrategy: failed to insert event", "device_id", deviceID, "err", execErr)
+				}
 			}
 		}
 	}
@@ -160,14 +163,15 @@ func NewAdminOperMismatchStrategy(logger *slog.Logger) *AdminOperMismatchStrateg
 func (s *AdminOperMismatchStrategy) Evaluate(ctx context.Context, database *db.DB, deviceID int) error {
 	const alarmID = 4
 
+	// Corrected placement of DISTINCT ON
 	query := `
-		SELECT interface_id, if_descr 
-		FROM interface_performance_metrics ipm
-		JOIN interfaces i ON ipm.interface_id = i.id
-		WHERE i.device_id = $1 AND ipm.time >= NOW() - INTERVAL '1 minute'
-		AND ipm.if_admin_status = 1 AND ipm.if_oper_status = 2
-		DISTINCT ON (interface_id)
-		ORDER BY interface_id, ipm.time DESC;`
+        SELECT DISTINCT ON (interface_id) 
+               interface_id, if_descr 
+        FROM interface_performance_metrics ipm
+        JOIN interfaces i ON ipm.interface_id = i.id
+        WHERE i.device_id = $1 AND ipm.time >= NOW() - INTERVAL '1 minute'
+        AND ipm.if_admin_status = 1 AND ipm.if_oper_status = 2
+        ORDER BY interface_id, ipm.time DESC;`
 
 	rows, err := database.Pool.Query(ctx, query, deviceID)
 	if err != nil {
@@ -192,10 +196,12 @@ func (s *AdminOperMismatchStrategy) Evaluate(ctx context.Context, database *db.D
 			s.logger.Warn("AdminOperMismatchStrategy: Configuration mismatch state discovered!", "device_id", deviceID, "interface", ifDescr)
 
 			insertQuery := `
-				INSERT INTO network_events (time, device_id, alarm_id, severity, message, resolved) 
-				VALUES (NOW(), $1, $2, 'WARNING', $3, false);`
+				INSERT INTO network_events (time, device_id, alarm_id, event_type, severity, details, resolved) 
+				VALUES (NOW(), $1, $2, 'admin_oper_mismatch', 'WARNING', $3, false);`
 			msg := "Interface Mismatch: " + ifDescr + " is administratively enabled (UP) but operationally DOWN."
-			_, _ = database.Pool.Exec(ctx, insertQuery, deviceID, alarmID, msg)
+			if _, execErr := database.Pool.Exec(ctx, insertQuery, deviceID, alarmID, msg); execErr != nil {
+				s.logger.Error("AdminOperMismatchStrategy: failed to insert event", "device_id", deviceID, "err", execErr)
+			}
 		}
 	}
 	return nil
@@ -242,9 +248,11 @@ func (s *HighCPUUtilizationStrategy) Evaluate(ctx context.Context, database *db.
 			s.logger.Error("HighCPUUtilizationStrategy: Resource exhaustion threshold crossed!", "device_id", deviceID, "avg_cpu", avgCPU)
 
 			insertQuery := `
-				INSERT INTO network_events (time, device_id, alarm_id, severity, message, resolved) 
-				VALUES (NOW(), $1, $2, 'CRITICAL', 'High compute usage warning: average CPU utilization is sustained above threshold bounds.', false);`
-			_, _ = database.Pool.Exec(ctx, insertQuery, deviceID, alarmID)
+				INSERT INTO network_events (time, device_id, alarm_id, event_type, severity, details, resolved) 
+				VALUES (NOW(), $1, $2, 'high_cpu', 'CRITICAL', 'High compute usage warning: average CPU utilization is sustained above threshold bounds.', false);`
+			if _, execErr := database.Pool.Exec(ctx, insertQuery, deviceID, alarmID); execErr != nil {
+				s.logger.Error("HighCPUUtilizationStrategy: failed to insert event", "device_id", deviceID, "err", execErr)
+			}
 		}
 	}
 	return nil

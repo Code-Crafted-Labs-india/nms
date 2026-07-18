@@ -32,12 +32,13 @@ services:
     restart: unless-stopped
 
   # =========================================================================
-  # NEW: GO MIDDLEWARE SERVICE CONTAINER
+  # GO MIDDLEWARE SERVICE CONTAINER
   # =========================================================================
   nms-middleware:
     build: .
     container_name: nms-middleware
-    # Elevated network permissions inside docker to send raw ICMP packets
+    ports:
+      - "8080:8080" # Exposed so the Grafana web form can POST CRUD requests
     cap_add:
       - NET_ADMIN
       - NET_RAW
@@ -50,31 +51,54 @@ services:
       - nms_net
     restart: unless-stopped
 
-  # =========================================================================
-  # SIMULATED DUMMY NETWORK DEVICES
-  # =========================================================================
   mock-switch-01:
-    image: ubuntu:22.04
+    build:
+      context: .
+      dockerfile: Dockerfile.mock
     container_name: mock-switch-01
-    command: >
-      bash -c "apt-get update && apt-get install -y snmpd iputils-ping && 
-      echo 'rocommunity public' > /etc/snmp/snmpd.conf &&
-      service snmpd restart && tail -f /dev/null"
     networks:
       nms_net:
         ipv4_address: 192.168.10.10
 
+  mock-switch-02:
+    build:
+      context: .
+      dockerfile: Dockerfile.mock
+    container_name: mock-switch-02
+    networks:
+      nms_net:
+        ipv4_address: 192.168.10.11
+
+  mock-router-01:
+    build:
+      context: .
+      dockerfile: Dockerfile.mock
+    container_name: mock-router-01
+    networks:
+      nms_net:
+        ipv4_address: 192.168.10.19
+
   mock-router-02:
-    image: ubuntu:22.04
+    build:
+      context: .
+      dockerfile: Dockerfile.mock
     container_name: mock-router-02
-    command: >
-      bash -c "apt-get update && apt-get install -y snmpd iputils-ping && 
-      echo 'rocommunity public' > /etc/snmp/snmpd.conf &&
-      service snmpd restart && tail -f /dev/null"
     networks:
       nms_net:
         ipv4_address: 192.168.10.20
 
+  mock-core-01:
+    build:
+      context: .
+      dockerfile: Dockerfile.mock
+    container_name: mock-core-01
+    networks:
+      nms_net:
+        ipv4_address: 192.168.10.30
+
+  # =========================================================================
+  # MONITORING PRESENTATION
+  # =========================================================================
   grafana:
     image: grafana/grafana-oss:latest
     container_name: nms-grafana
@@ -82,7 +106,11 @@ services:
       - "3000:3000"
     environment:
       - GF_SECURITY_ADMIN_PASSWORD=${GRAFANA_ADMIN_PASSWORD:-admin}
-      - DB_PASS=${DB_PASSWORD} # Pulls from your local .env file
+      - DB_PASS=${DB_PASSWORD}
+      - GF_PLUGINS_ALLOW_LOADING_UNSIGNED_PLUGINS=volkovlabs-form-panel
+    # Hard-force installation through the CLI boot vector before launching Grafana
+    entrypoint: >
+      sh -c "grafana cli plugins install volkovlabs-form-panel && exec /run.sh"
     volumes:
       - grafana_storage:/var/lib/grafana
       - ./grafana/provisioning:/etc/grafana/provisioning:ro

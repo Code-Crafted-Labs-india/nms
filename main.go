@@ -60,6 +60,12 @@ func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 
+	// Launch migration runner
+	if err := db.RunMigrations(ctx, database, logger); err != nil {
+		logger.Error("Failed to migrate database", "error", err)
+		os.Exit(1)
+	}
+
 	app.logger.Info("NMS Go Middleware application initialized successfully. Listening for pipeline updates...")
 
 	// 2. Launch background engine loops
@@ -80,8 +86,8 @@ func main() {
 	}
 	logger.Info("Registered operational network alarm matrix successfully", "count", len(strategies))
 
-	engine := alert.NewEvaluateEngine(database, logger, strategies)
-	engine.StartWorkerPool(ctx, 5, 30*time.Second)
+	alertEngine := alert.NewEvaluateEngine(database, logger, strategies)
+	alertEngine.StartWorkerPool(ctx, 5, 30*time.Second)
 
 	// Initialize REST API multiplexer
 	mux := http.NewServeMux()

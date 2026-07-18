@@ -1,0 +1,18 @@
+FROM ubuntu:22.04
+
+# Pre-install network tools and snmpd so the container boots instantly
+RUN apt-get update && apt-get install -y \
+    snmpd \
+    iputils-ping \
+    && rm -rf /var/lib/apt/lists/*
+
+# 1. Define an unrestricted view for the entire MIB tree (.1)
+# 2. Assign the 'public' community string to use that open view map
+RUN echo "view all included .1" > /etc/snmp/snmpd.conf && \
+    echo "rocommunity public default -V all" >> /etc/snmp/snmpd.conf
+
+# Expose standard SNMP port
+EXPOSE 161/udp
+
+# Force snmpd to listen to ALL interfaces on port 161
+CMD ["snmpd", "-f", "-Lo", "-c", "/etc/snmp/snmpd.conf", "0.0.0.0:161"]
