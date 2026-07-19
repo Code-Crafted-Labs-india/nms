@@ -60,7 +60,7 @@ func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 
-	// Launch migration runner
+	// Launch self-healing schema synchronization before any engine loop starts
 	if err := db.RunMigrations(ctx, database, logger); err != nil {
 		logger.Error("Failed to migrate database", "error", err)
 		os.Exit(1)
@@ -89,13 +89,19 @@ func main() {
 	alertEngine := alert.NewEvaluateEngine(database, logger, strategies)
 	alertEngine.StartWorkerPool(ctx, 5, 30*time.Second)
 
-	// Initialize REST API multiplexer
+	// Initialize REST API multiplexer with request logger middleware
 	mux := http.NewServeMux()
-	mux.HandleFunc("POST /api/devices", handlers.AddDeviceHandler(database))
-	mux.HandleFunc("PUT /api/devices/{id}", handlers.EditDeviceHandler(database))
-	mux.HandleFunc("DELETE /api/devices/{id}", handlers.DeleteDeviceHandler(database))
+	mux.Handle("POST /api/devices", handlers.RequestLogger(handlers.AddDeviceHandler(database)))
+	mux.Handle("PUT /api/devices/{id}", handlers.RequestLogger(handlers.EditDeviceHandler(database)))
+	mux.Handle("DELETE /api/devices/{id}", handlers.RequestLogger(handlers.DeleteDeviceHandler(database)))
+	// Explicit OPTIONS routes for preflight on parameterized paths
+	mux.Handle("OPTIONS /api/devices", handlers.RequestLogger(handlers.PreflightHandler()))
+	mux.Handle("OPTIONS /api/devices/{id}", handlers.RequestLogger(handlers.PreflightHandler()))
 
 	go func() {
+		// Binding to :8080 (all interfaces) is required when Grafana runs in a
+		// separate Docker container — binding to 127.0.0.1 would be unreachable
+		// from any other container on the Docker network.
 		app.logger.Info("Starting REST API server on :8080")
 		if err := http.ListenAndServe(":8080", mux); err != nil && err != http.ErrServerClosed {
 			app.logger.Error("REST API server failed", "error", err)

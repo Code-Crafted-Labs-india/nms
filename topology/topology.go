@@ -40,7 +40,7 @@ func syncTopology(database *db.DB) error {
 			COALESCE(NULLIF(lldp.lldp_rem_sys_name, ''), lldp.agent_host::text) AS target_device,
 			COALESCE(NULLIF(lldp.lldp_rem_port_id, ''), 'unknown')              AS target_port
 		FROM snmp_lldp_topology lldp
-		LEFT JOIN devices src ON src.ip_address = lldp.agent_host
+		LEFT JOIN devices src ON src.ip_address = lldp.agent_host::inet
 		WHERE lldp.time > NOW() - INTERVAL '5 minutes'
 		  AND lldp.lldp_rem_sys_name IS NOT NULL
 		  AND lldp.lldp_rem_sys_name <> ''
