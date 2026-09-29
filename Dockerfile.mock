@@ -1,18 +1,21 @@
 FROM ubuntu:22.04
 
-# Pre-install network tools and snmpd so the container boots instantly
+# snmpd       – SNMP agent
+# iputils-ping – ping for traffic generation
+# iproute2    – ip link for virtual interfaces (requires NET_ADMIN cap)
+# python3     – pass_persist UCD simulator script
 RUN apt-get update && apt-get install -y \
     snmpd \
     iputils-ping \
+    iproute2 \
+    python3 \
     && rm -rf /var/lib/apt/lists/*
 
-# 1. Define an unrestricted view for the entire MIB tree (.1)
-# 2. Assign the 'public' community string to use that open view map
-RUN echo "view all included .1" > /etc/snmp/snmpd.conf && \
-    echo "rocommunity public default -V all" >> /etc/snmp/snmpd.conf
+# Bake in the pass_persist UCD simulator and the entrypoint
+COPY ucd-sim /usr/local/sbin/ucd-sim
+COPY mock-entrypoint.sh /mock-entrypoint.sh
+RUN chmod +x /usr/local/sbin/ucd-sim /mock-entrypoint.sh
 
-# Expose standard SNMP port
 EXPOSE 161/udp
 
-# Force snmpd to listen to ALL interfaces on port 161
-CMD ["snmpd", "-f", "-Lo", "-c", "/etc/snmp/snmpd.conf", "0.0.0.0:161"]
+ENTRYPOINT ["/mock-entrypoint.sh"]

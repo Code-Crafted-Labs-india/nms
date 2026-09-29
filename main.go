@@ -73,10 +73,10 @@ func main() {
 	go pingSvc.StartSweeper(ctx, 15*time.Second)
 
 	// Fire up the structural network graph mapping package engine
-	topology.StartTopologyEngine(app.db, 30*time.Second)
+	topology.StartTopologyEngine(ctx, app.db, 30*time.Second)
 
 	// Fire up the auto-discovery engine
-	discovery.StartDiscoveryEngine(database, 1*time.Minute)
+	discovery.StartDiscoveryEngine(ctx, database, 1*time.Minute)
 
 	strategies := []alert.AlarmStrategy{
 		alert.NewDeviceDownStrategy(logger, 1*time.Minute),
@@ -98,12 +98,16 @@ func main() {
 	mux.Handle("OPTIONS /api/devices", handlers.RequestLogger(handlers.PreflightHandler()))
 	mux.Handle("OPTIONS /api/devices/{id}", handlers.RequestLogger(handlers.PreflightHandler()))
 
+	// Binding to :8080 (all interfaces) is required when Grafana runs in a
+	// separate Docker container — binding to 127.0.0.1 would be unreachable
+	// from any other container on the Docker network.
+	httpServer := &http.Server{
+		Addr:    ":8080",
+		Handler: mux,
+	}
 	go func() {
-		// Binding to :8080 (all interfaces) is required when Grafana runs in a
-		// separate Docker container — binding to 127.0.0.1 would be unreachable
-		// from any other container on the Docker network.
 		app.logger.Info("Starting REST API server on :8080")
-		if err := http.ListenAndServe(":8080", mux); err != nil && err != http.ErrServerClosed {
+		if err := httpServer.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 			app.logger.Error("REST API server failed", "error", err)
 		}
 	}()
@@ -115,8 +119,15 @@ func main() {
 
 	app.logger.Warn("Caught termination signal. Initializing graceful engine teardown...")
 
-	// 4. Provide a brief 2-second buffer loop to allow workers to clear out active SQL commands
-	time.Sleep(2 * time.Second)
+	// 4. Give in-flight HTTP requests and background workers up to 10s to finish
+	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer shutdownCancel()
+
+	if err := httpServer.Shutdown(shutdownCtx); err != nil {
+		app.logger.Error("HTTP server forced to close during shutdown", "error", err)
+	} else {
+		app.logger.Info("HTTP server shut down cleanly.")
+	}
 
 	// 5. Execute safe closure of the active TimescaleDB connection pool
 	app.db.Close()

@@ -8,16 +8,22 @@ import (
 	"nms-middleware/db"
 )
 
-// StartTopologyEngine runs the background polling loop
-func StartTopologyEngine(database *db.DB, interval time.Duration) {
+// StartTopologyEngine runs the background polling loop until ctx is cancelled.
+func StartTopologyEngine(ctx context.Context, database *db.DB, interval time.Duration) {
 	go func() {
 		ticker := time.NewTicker(interval)
 		defer ticker.Stop()
 
-		for range ticker.C {
-			log.Println("[Topology] Scanning LLDP matrix for network discovery...")
-			if err := syncTopology(database); err != nil {
-				log.Printf("[Topology Error] Processing sync failed: %v", err)
+		for {
+			select {
+			case <-ctx.Done():
+				log.Println("[Topology] Context cancelled, stopping topology engine.")
+				return
+			case <-ticker.C:
+				log.Println("[Topology] Scanning LLDP matrix for network discovery...")
+				if err := syncTopology(database); err != nil {
+					log.Printf("[Topology Error] Processing sync failed: %v", err)
+				}
 			}
 		}
 	}()

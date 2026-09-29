@@ -155,7 +155,7 @@ func (pe *PingEngine) pingTarget(ctx context.Context, t Target, timestamp time.T
 		if err == nil && rm.Type == ipv4.ICMPTypeEchoReply {
 			icmpStatus = 1
 			packetLoss = 0.0
-			rtt = float64(time.Since(start).Milliseconds())
+			rtt = float64(time.Since(start).Nanoseconds()) / 1e6 // fractional ms
 			pe.logger.Info("device path responsive, sweep transaction verified", "ip", ipStr, "rtt_ms", rtt)
 		} else {
 			pe.logger.Warn("invalid icmp reply received", "ip", ipStr)

@@ -1,0 +1,85 @@
+#!/usr/bin/env python3
+"""
+NMS Mock Device – UCD-SNMP pass_persist simulator.
+
+Handles the .1.3.6.1.4.1.2021 subtree and returns per-device CPU/memory
+values that vary realistically over time (sinusoidal wave + Gaussian noise).
+
+Environment variables (set per container in docker-compose.yml):
+  BASE_CPU_IDLE  – base CPU idle percentage          (default: 70)
+  MEM_TOTAL_KB   – total RAM in KB                   (default: 8388608 = 8 GB)
+  MEM_USED_PCT   – base used RAM percentage          (default: 40)
+"""
+import sys, os, math, random, time
+
+BASE_CPU_IDLE = float(os.environ.get('BASE_CPU_IDLE', '70'))
+MEM_TOTAL_KB  = int(os.environ.get('MEM_TOTAL_KB',  '8388608'))
+MEM_USED_PCT  = float(os.environ.get('MEM_USED_PCT', '40'))
+
+_t0 = time.monotonic()
+
+def _elapsed():
+    return time.monotonic() - _t0
+
+def cpu_idle_val():
+    """Sinusoidal 2-minute wave ±12 % + small Gaussian noise."""
+    wave  = 12.0 * math.sin(_elapsed() / 120.0 * 2 * math.pi)
+    noise = random.gauss(0, 2.5)
+    return max(5, min(98, int(BASE_CPU_IDLE + wave + noise)))
+
+def load_1_val():
+    """1-minute load average derived from CPU idle, formatted as a float string."""
+    busy = (100.0 - cpu_idle_val()) / 100.0
+    load = max(0.0, busy * 2.0 + random.gauss(0, 0.08))
+    return f'{load:.2f}'
+
+def mem_avail_val():
+    """Available memory with a 90-second wave ±4 % + small noise."""
+    base_free = int(MEM_TOTAL_KB * (100.0 - MEM_USED_PCT) / 100.0)
+    wave      = int(MEM_TOTAL_KB * 0.04 * math.sin(_elapsed() / 90.0 * 2 * math.pi))
+    noise     = random.randint(-MEM_TOTAL_KB // 80, MEM_TOTAL_KB // 80)
+    return max(0, base_free + wave + noise)
+
+# Ordered OID table (ascending order is required for correct getnext walking)
+OIDS = [
+    ('.1.3.6.1.4.1.99999.4.5.0',    'INTEGER', lambda: str(MEM_TOTAL_KB)),
+    ('.1.3.6.1.4.1.99999.4.11.0',   'INTEGER', lambda: str(mem_avail_val())),
+    ('.1.3.6.1.4.1.99999.10.1.3.1', 'STRING',  load_1_val),
+    ('.1.3.6.1.4.1.99999.11.11.0',  'INTEGER', lambda: str(cpu_idle_val())),
+]
+OID_MAP  = {row[0]: (row[1], row[2]) for row in OIDS}
+OID_LIST = [row[0] for row in OIDS]
+
+def emit(oid):
+    if oid in OID_MAP:
+        typ, fn = OID_MAP[oid]
+        print(oid); print(typ); print(fn())
+    else:
+        print('NONE')
+    sys.stdout.flush()
+
+def oid_to_tuple(oid):
+    return tuple(int(x) for x in oid.strip('.').split('.'))
+
+def next_oid_after(oid):
+    target = oid_to_tuple(oid)
+    for o in OID_LIST:
+        if oid_to_tuple(o) > target:
+            return o
+    return None
+
+# ── pass_persist main loop ────────────────────────────────────────────────────
+for raw in sys.stdin:
+    cmd = raw.strip()
+    if not cmd:
+        continue
+    if cmd == 'PING':
+        print('PONG'); sys.stdout.flush()
+    elif cmd == 'get':
+        emit(sys.stdin.readline().strip())
+    elif cmd == 'getnext':
+        noid = next_oid_after(sys.stdin.readline().strip())
+        if noid:
+            emit(noid)
+        else:
+            print('NONE'); sys.stdout.flush()

@@ -48,6 +48,7 @@ services:
         condition: service_healthy
     networks:
       - nms_net
+    stop_grace_period: 15s
     restart: unless-stopped
 
   mock-switch-01:
@@ -56,6 +57,16 @@ services:
       dockerfile: Dockerfile.mock
     container_name: mock-switch-01
     hostname: mock-switch-01
+    cap_add:
+      - NET_ADMIN
+    environment:
+      - DEVICE_TYPE=switch
+      - BASE_CPU_IDLE=87      # access switch, mostly idle
+      - MEM_TOTAL_KB=4194304  # 4 GB
+      - MEM_USED_PCT=22
+      - PEER_IPS=192.168.10.30                          # uplink to core only
+      - PING_INTERVAL=0.15
+      - PING_SIZE=768
     networks:
       nms_net:
         ipv4_address: 192.168.10.10
@@ -66,6 +77,16 @@ services:
       dockerfile: Dockerfile.mock
     container_name: mock-switch-02
     hostname: mock-switch-02
+    cap_add:
+      - NET_ADMIN
+    environment:
+      - DEVICE_TYPE=switch
+      - BASE_CPU_IDLE=75      # busier access switch
+      - MEM_TOTAL_KB=4194304  # 4 GB
+      - MEM_USED_PCT=38
+      - PEER_IPS=192.168.10.30                          # uplink to core
+      - PING_INTERVAL=0.1
+      - PING_SIZE=1024
     networks:
       nms_net:
         ipv4_address: 192.168.10.11
@@ -76,6 +97,16 @@ services:
       dockerfile: Dockerfile.mock
     container_name: mock-router-01
     hostname: mock-router-01
+    cap_add:
+      - NET_ADMIN
+    environment:
+      - DEVICE_TYPE=router
+      - BASE_CPU_IDLE=63      # WAN router, moderate load
+      - MEM_TOTAL_KB=8388608  # 8 GB
+      - MEM_USED_PCT=48
+      - PEER_IPS=192.168.10.10 192.168.10.11 192.168.10.30
+      - PING_INTERVAL=0.05
+      - PING_SIZE=1200
     networks:
       nms_net:
         ipv4_address: 192.168.10.19
@@ -86,6 +117,16 @@ services:
       dockerfile: Dockerfile.mock
     container_name: mock-router-02
     hostname: mock-router-02
+    cap_add:
+      - NET_ADMIN
+    environment:
+      - DEVICE_TYPE=router
+      - BASE_CPU_IDLE=52      # second WAN router, heavier load
+      - MEM_TOTAL_KB=8388608  # 8 GB
+      - MEM_USED_PCT=62
+      - PEER_IPS=192.168.10.10 192.168.10.11 192.168.10.30
+      - PING_INTERVAL=0.04
+      - PING_SIZE=1200
     networks:
       nms_net:
         ipv4_address: 192.168.10.20
@@ -96,6 +137,16 @@ services:
       dockerfile: Dockerfile.mock
     container_name: mock-core-01
     hostname: mock-core-01
+    cap_add:
+      - NET_ADMIN
+    environment:
+      - DEVICE_TYPE=core
+      - BASE_CPU_IDLE=42      # core router, high sustained load
+      - MEM_TOTAL_KB=16777216 # 16 GB
+      - MEM_USED_PCT=58
+      - PEER_IPS=192.168.10.10 192.168.10.11 192.168.10.19 192.168.10.20
+      - PING_INTERVAL=0.02    # 50 pps ≈ 1.1 Mbps per peer
+      - PING_SIZE=1400
     networks:
       nms_net:
         ipv4_address: 192.168.10.30

@@ -8,16 +8,22 @@ import (
 	"nms-middleware/db"
 )
 
-// StartDiscoveryEngine runs a loop checking for unmanaged reporting agents
-func StartDiscoveryEngine(database *db.DB, interval time.Duration) {
+// StartDiscoveryEngine runs a loop checking for unmanaged reporting agents until ctx is cancelled.
+func StartDiscoveryEngine(ctx context.Context, database *db.DB, interval time.Duration) {
 	go func() {
 		ticker := time.NewTicker(interval)
 		defer ticker.Stop()
 
-		for range ticker.C {
-			log.Println("[Discovery] Scanning metric pools for new network assets...")
-			if err := discoverNewDevices(database); err != nil {
-				log.Printf("[Discovery Error] Auto-discovery scan failed: %v", err)
+		for {
+			select {
+			case <-ctx.Done():
+				log.Println("[Discovery] Context cancelled, stopping discovery engine.")
+				return
+			case <-ticker.C:
+				log.Println("[Discovery] Scanning metric pools for new network assets...")
+				if err := discoverNewDevices(database); err != nil {
+					log.Printf("[Discovery Error] Auto-discovery scan failed: %v", err)
+				}
 			}
 		}
 	}()
