@@ -1,0 +1,100 @@
+{
+  "annotations": {"list": []},
+  "editable": true,
+  "fiscalYearStartMonth": 0,
+  "graphTooltip": 1,
+  "id": null,
+  "links": [],
+  "liveNow": true,
+  "panels": [
+    {
+      "datasource": {"type": "grafana-postgresql-datasource", "uid": "P40AE60E18F02DE32"},
+      "fieldConfig": {"defaults": {"color": {"mode": "fixed", "fixedColor": "blue"}, "unit": "short"}, "overrides": []},
+      "gridPos": {"h": 4, "w": 6, "x": 0, "y": 0},
+      "id": 1,
+      "options": {"colorMode": "background", "graphMode": "none", "justifyMode": "center", "orientation": "auto", "reduceOptions": {"calcs": ["lastNotNull"], "fields": "", "values": false}, "textMode": "auto", "wideLayout": true},
+      "targets": [{"editorMode": "code", "format": "table", "rawQuery": true, "rawSql": "SELECT COUNT(*) AS value FROM devices WHERE is_monitored = TRUE;", "refId": "A"}],
+      "title": "Monitored Devices",
+      "type": "stat"
+    },
+    {
+      "datasource": {"type": "grafana-postgresql-datasource", "uid": "P40AE60E18F02DE32"},
+      "fieldConfig": {"defaults": {"color": {"mode": "fixed", "fixedColor": "green"}, "unit": "short"}, "overrides": []},
+      "gridPos": {"h": 4, "w": 6, "x": 6, "y": 0},
+      "id": 2,
+      "options": {"colorMode": "background", "graphMode": "none", "justifyMode": "center", "orientation": "auto", "reduceOptions": {"calcs": ["lastNotNull"], "fields": "", "values": false}, "textMode": "auto", "wideLayout": true},
+      "targets": [{"editorMode": "code", "format": "table", "rawQuery": true, "rawSql": "WITH latest AS (SELECT DISTINCT ON (device_id) device_id, icmp_status FROM device_health_metrics WHERE $__timeFilter(time) ORDER BY device_id, time DESC) SELECT COUNT(*) FILTER (WHERE latest.icmp_status = 1) AS value FROM devices d LEFT JOIN latest ON latest.device_id = d.id WHERE d.is_monitored = TRUE;", "refId": "A"}],
+      "title": "Devices Up",
+      "type": "stat"
+    },
+    {
+      "datasource": {"type": "grafana-postgresql-datasource", "uid": "P40AE60E18F02DE32"},
+      "fieldConfig": {"defaults": {"color": {"mode": "fixed", "fixedColor": "red"}, "unit": "short"}, "overrides": []},
+      "gridPos": {"h": 4, "w": 6, "x": 12, "y": 0},
+      "id": 3,
+      "options": {"colorMode": "background", "graphMode": "none", "justifyMode": "center", "orientation": "auto", "reduceOptions": {"calcs": ["lastNotNull"], "fields": "", "values": false}, "textMode": "auto", "wideLayout": true},
+      "targets": [{"editorMode": "code", "format": "table", "rawQuery": true, "rawSql": "WITH latest AS (SELECT DISTINCT ON (device_id) device_id, icmp_status FROM device_health_metrics WHERE $__timeFilter(time) ORDER BY device_id, time DESC) SELECT COUNT(*) FILTER (WHERE COALESCE(latest.icmp_status, 0) = 0) AS value FROM devices d LEFT JOIN latest ON latest.device_id = d.id WHERE d.is_monitored = TRUE;", "refId": "A"}],
+      "title": "Down / No Telemetry",
+      "type": "stat"
+    },
+    {
+      "datasource": {"type": "grafana-postgresql-datasource", "uid": "P40AE60E18F02DE32"},
+      "fieldConfig": {"defaults": {"color": {"mode": "fixed", "fixedColor": "orange"}, "unit": "short"}, "overrides": []},
+      "gridPos": {"h": 4, "w": 6, "x": 18, "y": 0},
+      "id": 4,
+      "options": {"colorMode": "background", "graphMode": "none", "justifyMode": "center", "orientation": "auto", "reduceOptions": {"calcs": ["lastNotNull"], "fields": "", "values": false}, "textMode": "auto", "wideLayout": true},
+      "targets": [{"editorMode": "code", "format": "table", "rawQuery": true, "rawSql": "SELECT COUNT(*) AS value FROM network_events WHERE resolved = FALSE;", "refId": "A"}],
+      "title": "Active Alarms",
+      "type": "stat"
+    },
+    {
+      "datasource": {"type": "grafana-postgresql-datasource", "uid": "P40AE60E18F02DE32"},
+      "fieldConfig": {"defaults": {"custom": {"drawStyle": "line", "fillOpacity": 18, "lineInterpolation": "smooth", "lineWidth": 2, "showPoints": "never", "spanNulls": true}, "unit": "ms"}, "overrides": []},
+      "gridPos": {"h": 9, "w": 14, "x": 0, "y": 4},
+      "id": 5,
+      "options": {"legend": {"calcs": ["lastNotNull", "mean", "max"], "displayMode": "table", "placement": "bottom", "showLegend": true}, "tooltip": {"mode": "multi", "sort": "desc"}},
+      "targets": [{"editorMode": "code", "format": "time_series", "rawQuery": true, "rawSql": "SELECT m.time AS time, COALESCE(m.icmp_rtt_ms, m.average_response_ms) AS value, d.hostname AS metric FROM device_health_metrics m JOIN devices d ON d.id = m.device_id WHERE $__timeFilter(m.time) ORDER BY m.time;", "refId": "A"}],
+      "title": "ICMP Response Time",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {"type": "grafana-postgresql-datasource", "uid": "P40AE60E18F02DE32"},
+      "fieldConfig": {"defaults": {}, "overrides": [{"matcher": {"id": "byName", "options": "severity"}, "properties": [{"id": "custom.cellOptions", "value": {"type": "color-text"}}]}]},
+      "gridPos": {"h": 9, "w": 10, "x": 14, "y": 4},
+      "id": 6,
+      "options": {"cellHeight": "sm", "showHeader": true, "sortBy": [{"desc": true, "displayName": "time"}]},
+      "targets": [{"editorMode": "code", "format": "table", "rawQuery": true, "rawSql": "SELECT e.time, d.hostname AS device, e.severity, e.event_type, e.message FROM network_events e LEFT JOIN devices d ON d.id = e.device_id WHERE e.resolved = FALSE ORDER BY e.time DESC LIMIT 100;", "refId": "A"}],
+      "title": "Active Alert Ticker",
+      "type": "table"
+    },
+    {
+      "datasource": {"type": "grafana-postgresql-datasource", "uid": "P40AE60E18F02DE32"},
+      "fieldConfig": {"defaults": {"color": {"mode": "thresholds"}, "thresholds": {"mode": "absolute", "steps": [{"color": "green", "value": null}, {"color": "orange", "value": 70}, {"color": "red", "value": 85}]}, "unit": "percent"}, "overrides": []},
+      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 13},
+      "id": 7,
+      "options": {"legend": {"calcs": ["lastNotNull", "mean", "max"], "displayMode": "table", "placement": "bottom", "showLegend": true}, "tooltip": {"mode": "multi", "sort": "desc"}},
+      "targets": [{"editorMode": "code", "format": "time_series", "rawQuery": true, "rawSql": "SELECT h.time AS time, COALESCE(100.0 - h.cpu_idle, LEAST(h.cpu_load_1 * 25.0, 100.0)) AS value, COALESCE(d.hostname, h.agent_host, h.\"sysName\") AS metric FROM snmp_device_health h LEFT JOIN devices d ON d.ip_address = NULLIF(h.agent_host, '')::inet WHERE $__timeFilter(h.time) AND (h.cpu_idle IS NOT NULL OR h.cpu_load_1 IS NOT NULL) ORDER BY h.time;", "refId": "A"}],
+      "title": "CPU Utilization",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {"type": "grafana-postgresql-datasource", "uid": "P40AE60E18F02DE32"},
+      "fieldConfig": {"defaults": {"color": {"mode": "thresholds"}, "thresholds": {"mode": "absolute", "steps": [{"color": "green", "value": null}, {"color": "orange", "value": 70}, {"color": "red", "value": 85}]}, "unit": "percent"}, "overrides": []},
+      "gridPos": {"h": 8, "w": 12, "x": 12, "y": 13},
+      "id": 8,
+      "options": {"legend": {"calcs": ["lastNotNull", "mean", "max"], "displayMode": "table", "placement": "bottom", "showLegend": true}, "tooltip": {"mode": "multi", "sort": "desc"}},
+      "targets": [{"editorMode": "code", "format": "time_series", "rawQuery": true, "rawSql": "SELECT h.time AS time, 100.0 * (h.mem_total_kb - h.mem_available_kb) / NULLIF(h.mem_total_kb, 0) AS value, COALESCE(d.hostname, h.agent_host, h.\"sysName\") AS metric FROM snmp_device_health h LEFT JOIN devices d ON d.ip_address = NULLIF(h.agent_host, '')::inet WHERE $__timeFilter(h.time) AND h.mem_total_kb IS NOT NULL ORDER BY h.time;", "refId": "A"}],
+      "title": "Memory Utilization",
+      "type": "timeseries"
+    }
+  ],
+  "refresh": "15s",
+  "schemaVersion": 41,
+  "tags": ["nms", "noc", "overview"],
+  "templating": {"list": []},
+  "time": {"from": "now-6h", "to": "now"},
+  "timezone": "browser",
+  "title": "NOC High-Level Overview",
+  "uid": "nms-noc-overview",
+  "version": 1
+}

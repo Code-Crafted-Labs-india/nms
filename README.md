@@ -204,6 +204,35 @@ docker compose down -v
 docker compose up --build -d
 ```
 
+The Grafana image is built locally with the NMS logo in place of Grafana's
+sidebar, sign-in, and browser icon assets. To use a different logo, replace
+`grafana/branding/nms-logo.svg`, regenerate the two PNG files in that folder,
+and rebuild the `grafana` service.
+
+The TimescaleDB container applies `migration.sql` automatically when a new,
+empty database volume is initialized. Grafana dashboards are stored as JSON
+under `grafana/provisioning/dashboards/json`, so they are recreated from source
+even if the Grafana data volume is replaced.
+
+### Load dashboard sample data
+
+For development or demonstrations, load the repeatable sample dataset after
+the database is healthy:
+
+```bash
+docker compose exec -T timescaledb \
+  psql -U postgres -d nms_db -v ON_ERROR_STOP=1 -f /dev/stdin \
+  < db/sample_data.sql
+```
+
+The sample seed is not applied automatically and must not be run against a
+production database. Production isolation and security work is tracked in
+`docs/security-hardening-future-scope.md`.
+
+The running mock devices also expose standard SNMP system, UCD resource, and
+IF-MIB interface data. Telegraf polls all five mock devices exactly as it would
+poll production network equipment; this is the preferred end-to-end test path.
+
 
 
 ### Streaming the Real-time Event Pipeline Logs
@@ -232,4 +261,3 @@ FROM device_health_metrics
 ORDER BY time DESC 
 LIMIT 4;
 ```
-

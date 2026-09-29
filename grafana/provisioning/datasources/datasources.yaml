@@ -2,6 +2,7 @@ apiVersion: 1
 
 datasources:
   - name: TimescaleDB
+    uid: P40AE60E18F02DE32
     type: postgres
     access: proxy
     url: timescaledb:5432 # Matches the container name in your docker-compose

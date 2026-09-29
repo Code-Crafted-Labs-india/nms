@@ -68,7 +68,7 @@ func (d *DeviceDownStrategy) Evaluate(ctx context.Context, database *db.DB, devi
 		d.logger.Warn("Critical threshold breach! Registering fresh outage event.", "device_id", deviceID)
 
 		insertQuery := `
-            INSERT INTO network_events (time, device_id, alarm_id, event_type, severity, details, resolved) 
+            INSERT INTO network_events (time, device_id, alarm_id, event_type, severity, message, resolved)
             VALUES (NOW(), $1, $2, 'device_down', 'CRITICAL', 'Device failed to respond to concurrent ICMP sweeps over 60s window.', false);`
 
 		_, insertErr := database.Pool.Exec(ctx, insertQuery, deviceID, alarmID)
@@ -136,7 +136,7 @@ func (s *LinkStateStrategy) Evaluate(ctx context.Context, database *db.DB, devic
 				s.logger.Warn("LinkStateStrategy: Interface link down detected!", "device_id", deviceID, "interface", ifDescr)
 
 				insertQuery := `
-					INSERT INTO network_events (time, device_id, alarm_id, event_type, severity, details, resolved) 
+					INSERT INTO network_events (time, device_id, alarm_id, event_type, severity, message, resolved)
 					VALUES (NOW(), $1, $2, 'link_down', 'WARNING', $3, false);`
 				msg := "Interface " + ifDescr + " (ID: " + string(rune(interfaceID)) + ") has changed state to DOWN."
 				if _, execErr := database.Pool.Exec(ctx, insertQuery, deviceID, alarmID, msg); execErr != nil {
@@ -196,7 +196,7 @@ func (s *AdminOperMismatchStrategy) Evaluate(ctx context.Context, database *db.D
 			s.logger.Warn("AdminOperMismatchStrategy: Configuration mismatch state discovered!", "device_id", deviceID, "interface", ifDescr)
 
 			insertQuery := `
-				INSERT INTO network_events (time, device_id, alarm_id, event_type, severity, details, resolved) 
+				INSERT INTO network_events (time, device_id, alarm_id, event_type, severity, message, resolved)
 				VALUES (NOW(), $1, $2, 'admin_oper_mismatch', 'WARNING', $3, false);`
 			msg := "Interface Mismatch: " + ifDescr + " is administratively enabled (UP) but operationally DOWN."
 			if _, execErr := database.Pool.Exec(ctx, insertQuery, deviceID, alarmID, msg); execErr != nil {
@@ -248,7 +248,7 @@ func (s *HighCPUUtilizationStrategy) Evaluate(ctx context.Context, database *db.
 			s.logger.Error("HighCPUUtilizationStrategy: Resource exhaustion threshold crossed!", "device_id", deviceID, "avg_cpu", avgCPU)
 
 			insertQuery := `
-				INSERT INTO network_events (time, device_id, alarm_id, event_type, severity, details, resolved) 
+				INSERT INTO network_events (time, device_id, alarm_id, event_type, severity, message, resolved)
 				VALUES (NOW(), $1, $2, 'high_cpu', 'CRITICAL', 'High compute usage warning: average CPU utilization is sustained above threshold bounds.', false);`
 			if _, execErr := database.Pool.Exec(ctx, insertQuery, deviceID, alarmID); execErr != nil {
 				s.logger.Error("HighCPUUtilizationStrategy: failed to insert event", "device_id", deviceID, "err", execErr)

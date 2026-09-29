@@ -1,0 +1,106 @@
+{
+  "annotations": {"list": []},
+  "editable": true,
+  "graphTooltip": 1,
+  "id": null,
+  "links": [],
+  "panels": [
+    {
+      "datasource": {"type": "grafana-postgresql-datasource", "uid": "P40AE60E18F02DE32"},
+      "fieldConfig": {"defaults": {"color": {"mode": "thresholds"}, "thresholds": {"mode": "absolute", "steps": [{"color": "red", "value": null}, {"color": "green", "value": 1}, {"color": "red", "value": 2}]}}, "overrides": []},
+      "gridPos": {"h": 4, "w": 6, "x": 0, "y": 0},
+      "id": 1,
+      "options": {"colorMode": "background", "graphMode": "none", "justifyMode": "center", "orientation": "auto", "reduceOptions": {"calcs": ["lastNotNull"], "fields": "", "values": false}, "textMode": "auto", "wideLayout": true},
+      "targets": [{"editorMode": "code", "format": "table", "rawQuery": true, "rawSql": "WITH latest AS (SELECT DISTINCT ON (COALESCE(interface_id::text, agent_host || ':' || COALESCE(\"ifIndex\"::text, '0'), host)) COALESCE(if_oper_status, \"ifOperStatus\"::int) AS oper_status FROM interface_performance_metrics ORDER BY COALESCE(interface_id::text, agent_host || ':' || COALESCE(\"ifIndex\"::text, '0'), host), time DESC) SELECT COUNT(*) FILTER (WHERE oper_status = 1) AS value FROM latest;", "refId": "A"}],
+      "title": "Interfaces Up",
+      "type": "stat"
+    },
+    {
+      "datasource": {"type": "grafana-postgresql-datasource", "uid": "P40AE60E18F02DE32"},
+      "fieldConfig": {"defaults": {"color": {"mode": "fixed", "fixedColor": "red"}}, "overrides": []},
+      "gridPos": {"h": 4, "w": 6, "x": 6, "y": 0},
+      "id": 2,
+      "options": {"colorMode": "background", "graphMode": "none", "justifyMode": "center", "orientation": "auto", "reduceOptions": {"calcs": ["lastNotNull"], "fields": "", "values": false}, "textMode": "auto", "wideLayout": true},
+      "targets": [{"editorMode": "code", "format": "table", "rawQuery": true, "rawSql": "WITH latest AS (SELECT DISTINCT ON (COALESCE(interface_id::text, agent_host || ':' || COALESCE(\"ifIndex\"::text, '0'), host)) COALESCE(if_oper_status, \"ifOperStatus\"::int) AS oper_status FROM interface_performance_metrics ORDER BY COALESCE(interface_id::text, agent_host || ':' || COALESCE(\"ifIndex\"::text, '0'), host), time DESC) SELECT COUNT(*) FILTER (WHERE oper_status = 2) AS value FROM latest;", "refId": "A"}],
+      "title": "Interfaces Down",
+      "type": "stat"
+    },
+    {
+      "datasource": {"type": "grafana-postgresql-datasource", "uid": "P40AE60E18F02DE32"},
+      "fieldConfig": {"defaults": {"color": {"mode": "fixed", "fixedColor": "orange"}}, "overrides": []},
+      "gridPos": {"h": 4, "w": 6, "x": 12, "y": 0},
+      "id": 3,
+      "options": {"colorMode": "background", "graphMode": "none", "justifyMode": "center", "orientation": "auto", "reduceOptions": {"calcs": ["lastNotNull"], "fields": "", "values": false}, "textMode": "auto", "wideLayout": true},
+      "targets": [{"editorMode": "code", "format": "table", "rawQuery": true, "rawSql": "WITH latest AS (SELECT DISTINCT ON (COALESCE(interface_id::text, agent_host || ':' || COALESCE(\"ifIndex\"::text, '0'), host)) COALESCE(if_admin_status, \"ifAdminStatus\"::int) AS admin_status, COALESCE(if_oper_status, \"ifOperStatus\"::int) AS oper_status FROM interface_performance_metrics ORDER BY COALESCE(interface_id::text, agent_host || ':' || COALESCE(\"ifIndex\"::text, '0'), host), time DESC) SELECT COUNT(*) FILTER (WHERE admin_status = 1 AND oper_status = 2) AS value FROM latest;", "refId": "A"}],
+      "title": "Admin/Oper Mismatches",
+      "type": "stat"
+    },
+    {
+      "datasource": {"type": "grafana-postgresql-datasource", "uid": "P40AE60E18F02DE32"},
+      "fieldConfig": {"defaults": {"color": {"mode": "fixed", "fixedColor": "blue"}}, "overrides": []},
+      "gridPos": {"h": 4, "w": 6, "x": 18, "y": 0},
+      "id": 4,
+      "options": {"colorMode": "background", "graphMode": "none", "justifyMode": "center", "orientation": "auto", "reduceOptions": {"calcs": ["lastNotNull"], "fields": "", "values": false}, "textMode": "auto", "wideLayout": true},
+      "targets": [{"editorMode": "code", "format": "table", "rawQuery": true, "rawSql": "SELECT COUNT(DISTINCT COALESCE(interface_id::text, agent_host || ':' || COALESCE(\"ifIndex\"::text, '0'), host)) AS value FROM interface_performance_metrics;", "refId": "A"}],
+      "title": "Observed Interfaces",
+      "type": "stat"
+    },
+    {
+      "datasource": {"type": "grafana-postgresql-datasource", "uid": "P40AE60E18F02DE32"},
+      "fieldConfig": {"defaults": {"custom": {"drawStyle": "line", "fillOpacity": 12, "lineWidth": 2, "showPoints": "never", "spanNulls": true}, "unit": "Bps"}, "overrides": []},
+      "gridPos": {"h": 9, "w": 12, "x": 0, "y": 4},
+      "id": 5,
+      "options": {"legend": {"calcs": ["lastNotNull", "mean", "max"], "displayMode": "table", "placement": "bottom", "showLegend": true}, "tooltip": {"mode": "multi", "sort": "desc"}},
+      "targets": [
+        {"editorMode": "code", "format": "time_series", "rawQuery": true, "rawSql": "WITH samples AS (SELECT p.time, p.agent_host, p.\"sysName\", p.\"ifIndex\", p.\"ifDescr\", p.\"ifInOctets\", LAG(p.\"ifInOctets\") OVER (PARTITION BY p.agent_host, p.\"ifIndex\" ORDER BY p.time) AS previous_value, LAG(p.time) OVER (PARTITION BY p.agent_host, p.\"ifIndex\" ORDER BY p.time) AS previous_time FROM interface_performance_metrics p WHERE $__timeFilter(p.time) AND p.\"ifInOctets\" IS NOT NULL) SELECT s.time AS time, GREATEST((s.\"ifInOctets\" - s.previous_value) * 8.0 / NULLIF(EXTRACT(EPOCH FROM s.time - s.previous_time), 0), 0) AS value, COALESCE(d.hostname, s.agent_host, s.\"sysName\") || ' ' || s.\"ifDescr\" || ' RX' AS metric FROM samples s LEFT JOIN devices d ON d.ip_address = NULLIF(s.agent_host, '')::inet WHERE s.previous_value IS NOT NULL ORDER BY s.time;", "refId": "A"},
+        {"editorMode": "code", "format": "time_series", "rawQuery": true, "rawSql": "WITH samples AS (SELECT p.time, p.agent_host, p.\"sysName\", p.\"ifIndex\", p.\"ifDescr\", p.\"ifOutOctets\", LAG(p.\"ifOutOctets\") OVER (PARTITION BY p.agent_host, p.\"ifIndex\" ORDER BY p.time) AS previous_value, LAG(p.time) OVER (PARTITION BY p.agent_host, p.\"ifIndex\" ORDER BY p.time) AS previous_time FROM interface_performance_metrics p WHERE $__timeFilter(p.time) AND p.\"ifOutOctets\" IS NOT NULL) SELECT s.time AS time, GREATEST((s.\"ifOutOctets\" - s.previous_value) * 8.0 / NULLIF(EXTRACT(EPOCH FROM s.time - s.previous_time), 0), 0) AS value, COALESCE(d.hostname, s.agent_host, s.\"sysName\") || ' ' || s.\"ifDescr\" || ' TX' AS metric FROM samples s LEFT JOIN devices d ON d.ip_address = NULLIF(s.agent_host, '')::inet WHERE s.previous_value IS NOT NULL ORDER BY s.time;", "refId": "B"}
+      ],
+      "title": "Interface Throughput",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {"type": "grafana-postgresql-datasource", "uid": "P40AE60E18F02DE32"},
+      "fieldConfig": {"defaults": {"custom": {"drawStyle": "bars", "fillOpacity": 35, "lineWidth": 1, "showPoints": "never", "spanNulls": true}, "unit": "short"}, "overrides": []},
+      "gridPos": {"h": 9, "w": 12, "x": 12, "y": 4},
+      "id": 6,
+      "options": {"legend": {"calcs": ["lastNotNull", "sum"], "displayMode": "table", "placement": "bottom", "showLegend": true}, "tooltip": {"mode": "multi", "sort": "desc"}},
+      "targets": [
+        {"editorMode": "code", "format": "time_series", "rawQuery": true, "rawSql": "SELECT p.time AS time, COALESCE(p.\"ifInErrors\", p.rx_errors_delta, 0) + COALESCE(p.\"ifOutErrors\", p.tx_errors_delta, 0) AS value, COALESCE(d.hostname, p.agent_host, p.\"sysName\") || ' ' || COALESCE(p.\"ifDescr\", i.if_descr, 'interface') AS metric FROM interface_performance_metrics p LEFT JOIN interfaces i ON i.id = p.interface_id LEFT JOIN devices d ON d.id = i.device_id OR d.ip_address = NULLIF(p.agent_host, '')::inet WHERE $__timeFilter(p.time) ORDER BY p.time;", "refId": "A"}
+      ],
+      "title": "Interface Errors",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {"type": "grafana-postgresql-datasource", "uid": "P40AE60E18F02DE32"},
+      "fieldConfig": {"defaults": {}, "overrides": []},
+      "gridPos": {"h": 9, "w": 14, "x": 0, "y": 13},
+      "id": 7,
+      "options": {"cellHeight": "sm", "showHeader": true},
+      "targets": [{"editorMode": "code", "format": "table", "rawQuery": true, "rawSql": "WITH latest AS (SELECT DISTINCT ON (COALESCE(p.interface_id::text, p.agent_host || ':' || COALESCE(p.\"ifIndex\"::text, '0'), p.host)) p.* FROM interface_performance_metrics p ORDER BY COALESCE(p.interface_id::text, p.agent_host || ':' || COALESCE(p.\"ifIndex\"::text, '0'), p.host), p.time DESC) SELECT COALESCE(d.hostname, l.agent_host, l.\"sysName\", l.host) AS device, COALESCE(l.\"ifDescr\", i.if_descr, 'interface') AS interface, COALESCE(l.\"ifSpeed\", i.speed) AS speed, COALESCE(l.if_admin_status, l.\"ifAdminStatus\"::int) AS admin_state, COALESCE(l.if_oper_status, l.\"ifOperStatus\"::int) AS oper_state, COALESCE(l.rx_errors_delta, l.\"ifInErrors\"::bigint) AS rx_errors, COALESCE(l.tx_errors_delta, l.\"ifOutErrors\"::bigint) AS tx_errors, l.time AS last_update FROM latest l LEFT JOIN interfaces i ON i.id = l.interface_id LEFT JOIN devices d ON d.id = i.device_id OR d.ip_address = NULLIF(l.agent_host, '')::inet ORDER BY device, interface;", "refId": "A"}],
+      "title": "Latest Interface State",
+      "type": "table"
+    },
+    {
+      "datasource": {"type": "grafana-postgresql-datasource", "uid": "P40AE60E18F02DE32"},
+      "fieldConfig": {"defaults": {"custom": {"drawStyle": "line", "fillOpacity": 10, "lineWidth": 2, "showPoints": "auto", "spanNulls": true}, "unit": "dBm"}, "overrides": []},
+      "gridPos": {"h": 9, "w": 10, "x": 14, "y": 13},
+      "id": 8,
+      "options": {"legend": {"calcs": ["lastNotNull", "min", "max"], "displayMode": "table", "placement": "bottom", "showLegend": true}, "tooltip": {"mode": "multi", "sort": "desc"}},
+      "targets": [
+        {"editorMode": "code", "format": "time_series", "rawQuery": true, "rawSql": "SELECT p.time AS time, p.optical_rx_dbm AS value, d.hostname || ' ' || i.if_descr || ' RX' AS metric FROM interface_performance_metrics p JOIN interfaces i ON i.id = p.interface_id JOIN devices d ON d.id = i.device_id WHERE $__timeFilter(p.time) AND p.optical_rx_dbm IS NOT NULL ORDER BY p.time;", "refId": "A"},
+        {"editorMode": "code", "format": "time_series", "rawQuery": true, "rawSql": "SELECT p.time AS time, p.optical_tx_dbm AS value, d.hostname || ' ' || i.if_descr || ' TX' AS metric FROM interface_performance_metrics p JOIN interfaces i ON i.id = p.interface_id JOIN devices d ON d.id = i.device_id WHERE $__timeFilter(p.time) AND p.optical_tx_dbm IS NOT NULL ORDER BY p.time;", "refId": "B"}
+      ],
+      "title": "Optical Power (when supported)",
+      "type": "timeseries"
+    }
+  ],
+  "refresh": "30s",
+  "schemaVersion": 41,
+  "tags": ["nms", "interfaces", "engineering"],
+  "templating": {"list": []},
+  "time": {"from": "now-24h", "to": "now"},
+  "timezone": "browser",
+  "title": "Interface Engineering",
+  "uid": "nms-interface-engineering",
+  "version": 1
+}

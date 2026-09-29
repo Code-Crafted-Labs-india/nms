@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-labelledby="title desc">
+  <title id="title">NMS logo</title>
+  <desc id="desc">A connected network monogram forming the letter N</desc>
+  <defs>
+    <linearGradient id="network-gradient" x1="10" y1="54" x2="54" y2="10" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#22D3EE"/>
+      <stop offset="1" stop-color="#60A5FA"/>
+    </linearGradient>
+  </defs>
+  <path d="M14 50V14L50 50V14" fill="none" stroke="url(#network-gradient)" stroke-width="7" stroke-linecap="round" stroke-linejoin="round"/>
+  <circle cx="14" cy="14" r="6" fill="#F8FAFC" stroke="#22D3EE" stroke-width="3"/>
+  <circle cx="14" cy="50" r="6" fill="#F8FAFC" stroke="#22D3EE" stroke-width="3"/>
+  <circle cx="50" cy="14" r="6" fill="#F8FAFC" stroke="#60A5FA" stroke-width="3"/>
+  <circle cx="50" cy="50" r="6" fill="#F8FAFC" stroke="#60A5FA" stroke-width="3"/>
+</svg>

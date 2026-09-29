@@ -6,12 +6,11 @@ services:
       - POSTGRES_USER=postgres
       - POSTGRES_PASSWORD=yoursecurepassword
       - POSTGRES_DB=nms_db
-    ports:
-      - "5432:5432"
     networks:
       - nms_net
     volumes:
       - nms_db_data:/var/lib/postgresql/data
+      - ./migration.sql:/docker-entrypoint-initdb.d/001-nms-schema.sql:ro
     restart: unless-stopped
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U postgres -d nms_db"]
@@ -56,6 +55,7 @@ services:
       context: .
       dockerfile: Dockerfile.mock
     container_name: mock-switch-01
+    hostname: mock-switch-01
     networks:
       nms_net:
         ipv4_address: 192.168.10.10
@@ -65,6 +65,7 @@ services:
       context: .
       dockerfile: Dockerfile.mock
     container_name: mock-switch-02
+    hostname: mock-switch-02
     networks:
       nms_net:
         ipv4_address: 192.168.10.11
@@ -74,6 +75,7 @@ services:
       context: .
       dockerfile: Dockerfile.mock
     container_name: mock-router-01
+    hostname: mock-router-01
     networks:
       nms_net:
         ipv4_address: 192.168.10.19
@@ -83,6 +85,7 @@ services:
       context: .
       dockerfile: Dockerfile.mock
     container_name: mock-router-02
+    hostname: mock-router-02
     networks:
       nms_net:
         ipv4_address: 192.168.10.20
@@ -92,6 +95,7 @@ services:
       context: .
       dockerfile: Dockerfile.mock
     container_name: mock-core-01
+    hostname: mock-core-01
     networks:
       nms_net:
         ipv4_address: 192.168.10.30
@@ -100,13 +104,16 @@ services:
   # MONITORING PRESENTATION
   # =========================================================================
   grafana:
-    image: grafana/grafana-oss:latest
+    build:
+      context: .
+      dockerfile: grafana/Dockerfile
+    image: nms-grafana:latest
     container_name: nms-grafana
     ports:
       - "3000:3000"
     environment:
       - GF_SECURITY_ADMIN_PASSWORD=${GRAFANA_ADMIN_PASSWORD:-admin}
-      - DB_PASS=${DB_PASSWORD}
+      - DB_PASS=${DB_PASSWORD:-yoursecurepassword}
       - GF_PLUGINS_ALLOW_LOADING_UNSIGNED_PLUGINS=volkovlabs-form-panel
     # Hard-force installation through the CLI boot vector before launching Grafana
     entrypoint: >

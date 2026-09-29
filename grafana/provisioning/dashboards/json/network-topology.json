@@ -1,0 +1,41 @@
+{
+  "annotations": {"list": []},
+  "editable": true,
+  "graphTooltip": 1,
+  "id": null,
+  "links": [],
+  "panels": [
+    {
+      "datasource": {"type": "grafana-postgresql-datasource", "uid": "P40AE60E18F02DE32"},
+      "fieldConfig": {"defaults": {}, "overrides": []},
+      "gridPos": {"h": 18, "w": 18, "x": 0, "y": 0},
+      "id": 1,
+      "options": {"nodes": {"arc": [], "mainStatUnit": "", "secondaryStatUnit": ""}, "edges": {"mainStatUnit": "", "secondaryStatUnit": ""}, "zoomMode": "cooperative"},
+      "targets": [
+        {"editorMode": "code", "format": "table", "rawQuery": true, "rawSql": "SELECT hostname AS id, hostname AS title, device_type AS \"subTitle\", ip_address::text AS \"mainStat\", CASE WHEN device_type ILIKE '%router%' OR device_type ILIKE '%core%' THEN 'router' ELSE 'switch' END AS icon FROM devices ORDER BY hostname;", "refId": "nodes"},
+        {"editorMode": "code", "format": "table", "rawQuery": true, "rawSql": "SELECT id::text AS id, source_device AS source, target_device AS target, COALESCE(source_port, '') || CASE WHEN target_port IS NULL THEN '' ELSE ' ↔ ' || target_port END AS \"mainStat\" FROM network_topology ORDER BY source_device, target_device;", "refId": "edges"}
+      ],
+      "title": "Live Network Topology",
+      "type": "nodeGraph"
+    },
+    {
+      "datasource": {"type": "grafana-postgresql-datasource", "uid": "P40AE60E18F02DE32"},
+      "fieldConfig": {"defaults": {}, "overrides": []},
+      "gridPos": {"h": 18, "w": 6, "x": 18, "y": 0},
+      "id": 2,
+      "options": {"cellHeight": "sm", "showHeader": true},
+      "targets": [{"editorMode": "code", "format": "table", "rawQuery": true, "rawSql": "SELECT hostname, ip_address::text AS ip_address, device_type, location, is_monitored FROM devices ORDER BY hostname;", "refId": "A"}],
+      "title": "Device Inventory",
+      "type": "table"
+    }
+  ],
+  "refresh": "30s",
+  "schemaVersion": 41,
+  "tags": ["nms", "topology", "lldp"],
+  "templating": {"list": []},
+  "time": {"from": "now-6h", "to": "now"},
+  "timezone": "browser",
+  "title": "Network Topology",
+  "uid": "nms-network-topology",
+  "version": 1
+}
