@@ -4,13 +4,13 @@
 The NMS ecosystem ("NetPulse Core") is wired together as a decoupled, multi-tier data pipeline designed to prevent blocking bottlenecks, guarantee processing throughput, and safely scale.
 
 The data flows through 4 distinct layers:
-`Simulated Hardware (SNMPd Alpine Containers) ──> Ingestion Agent (Telegraf) ──> Storage Layer (TimescaleDB/PostgreSQL) ──> Processing Middleware (Go Backend) ──> Presentation Layout (Grafana Node Graph)`.
+`Simulated Hardware (SNMPd Alpine Containers) ──> Ingestion Agent (Telegraf) ──> Storage Layer (TimescaleDB/PostgreSQL) ──> Processing Middleware (Go Backend) ──> Presentation Layer (React Command Center)`.
 
 1. **Simulated Hardware**: Containerized network endpoints exposing SNMP and responding to ICMP.
 2. **Ingestion Agent**: Telegraf polls SNMP metrics from the devices and dumps raw telemetry directly into TimescaleDB.
 3. **Storage Layer**: PostgreSQL equipped with TimescaleDB extension maintains strict relational inventory while ingesting high-velocity time-series metrics into hypertables.
 4. **Processing Middleware**: A concurrent Go backend executes high-speed ICMP sweeps, processes raw telemetry into actionable relational graphs (LLDP topology), provisions unmanaged devices (Auto-Discovery), and exposes a REST API for management.
-5. **Presentation Layout**: Grafana continuously polls the processed tables to visualize the live network via Node Graphs and time-series dashboards.
+5. **Presentation Layer**: The secured Go API supplies the Bun/React command center with fleet health, time-series, alarm, inventory, and topology data. Grafana remains an optional loopback-only engineering aid during feature parity and troubleshooting.
 
 ## 2. 🗄️ Relational Database & Table Schema Map
 Based on our verified PostgreSQL schema, here is the relational and time-series data map:
@@ -41,9 +41,9 @@ The physical link discovery and visualization lifecycle operates completely auto
 1. **Telegraf Queries**: Telegraf utilizes `inputs.snmp.table` to query `LLDP-MIB::lldpRemTable` across all monitored devices.
 2. **Raw Storage**: Telegraf saves the resulting MIB payload natively into the `snmp_lldp_topology` table.
 3. **Go Processing**: The Go `topology` engine sweeps `snmp_lldp_topology` every 30 seconds. It parses the `agent_host` and `target_device` (mapping missing edge adjacencies) and commits them as discrete edge pairs into the relational `network_topology` table.
-4. **Grafana Presentation**: The Grafana Node Graph panel executes two discrete SQL queries to paint the graph. 
+4. **React Presentation**: The authenticated dashboard API returns the normalized nodes, live device status, and topology edges. The React topology view renders the graph and marks online, down, and unknown devices without exposing PostgreSQL to the browser.
 
-**Query A (Nodes):**
+**Underlying node query:**
 ```sql
 SELECT 
   hostname AS id,
@@ -53,7 +53,7 @@ SELECT
 FROM devices;
 ```
 
-**Query B (Edges):**
+**Underlying edge query:**
 ```sql
 SELECT 
   id::text AS id,

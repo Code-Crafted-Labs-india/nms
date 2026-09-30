@@ -1,0 +1,7 @@
+.git
+.env
+ui/node_modules
+ui/dist
+*.log
+*.out
+tmp

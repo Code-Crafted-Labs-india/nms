@@ -32,9 +32,19 @@ type application struct {
 func main() {
 	var cfg config
 
-	flag.StringVar(&cfg.dbDsn, "db-dsn", "postgres://postgres:yoursecurepassword@localhost:5432/nms_db?sslmode=disable", "PostgreSQL connection DSN")
+	dsnDefault := os.Getenv("NMS_DB_DSN")
+	if dsnDefault == "" {
+		dsnDefault = "postgres://postgres@localhost:5432/nms_db?sslmode=disable"
+	}
+	flag.StringVar(&cfg.dbDsn, "db-dsn", dsnDefault, "PostgreSQL connection DSN")
 	flag.StringVar(&cfg.env, "env", "development", "Environment (development|production)")
 	flag.Parse()
+
+	sessions, err := handlers.NewSessionStore(os.Getenv("NMS_BOOTSTRAP_TOKEN"))
+	if err != nil {
+		slog.Error("secure session configuration rejected", "error", err)
+		os.Exit(1)
+	}
 
 	var logger *slog.Logger
 	if cfg.env == "production" {
@@ -91,9 +101,12 @@ func main() {
 
 	// Initialize REST API multiplexer with request logger middleware
 	mux := http.NewServeMux()
-	mux.Handle("POST /api/devices", handlers.RequestLogger(handlers.AddDeviceHandler(database)))
-	mux.Handle("PUT /api/devices/{id}", handlers.RequestLogger(handlers.EditDeviceHandler(database)))
-	mux.Handle("DELETE /api/devices/{id}", handlers.RequestLogger(handlers.DeleteDeviceHandler(database)))
+	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusNoContent) })
+	mux.Handle("/api/session", handlers.RequestLogger(http.HandlerFunc(sessions.HandleSession)))
+	mux.Handle("GET /api/v1/dashboard", sessions.Authenticate(handlers.RequestLogger(handlers.DashboardHandler(database))))
+	mux.Handle("POST /api/devices", sessions.Authenticate(handlers.RequestLogger(handlers.AddDeviceHandler(database))))
+	mux.Handle("PUT /api/devices/{id}", sessions.Authenticate(handlers.RequestLogger(handlers.EditDeviceHandler(database))))
+	mux.Handle("DELETE /api/devices/{id}", sessions.Authenticate(handlers.RequestLogger(handlers.DeleteDeviceHandler(database))))
 	// Explicit OPTIONS routes for preflight on parameterized paths
 	mux.Handle("OPTIONS /api/devices", handlers.RequestLogger(handlers.PreflightHandler()))
 	mux.Handle("OPTIONS /api/devices/{id}", handlers.RequestLogger(handlers.PreflightHandler()))
@@ -102,8 +115,13 @@ func main() {
 	// separate Docker container — binding to 127.0.0.1 would be unreachable
 	// from any other container on the Docker network.
 	httpServer := &http.Server{
-		Addr:    ":8080",
-		Handler: mux,
+		Addr:              ":8080",
+		Handler:           handlers.SecurityHeaders(mux),
+		ReadHeaderTimeout: 5 * time.Second,
+		ReadTimeout:       15 * time.Second,
+		WriteTimeout:      30 * time.Second,
+		IdleTimeout:       60 * time.Second,
+		MaxHeaderBytes:    16 << 10,
 	}
 	go func() {
 		app.logger.Info("Starting REST API server on :8080")

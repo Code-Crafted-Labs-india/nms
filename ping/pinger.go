@@ -105,8 +105,9 @@ func (pe *PingEngine) pingTarget(ctx context.Context, t Target, timestamp time.T
 	// 1. Strip CIDR mask if present from IPAddress
 	ipStr := strings.Split(t.IPAddress, "/")[0]
 
-	// 2. Open ICMP connection on raw socket
-	c, err := icmp.ListenPacket("ip4:icmp", "0.0.0.0")
+	// 2. Use Linux's unprivileged ICMP datagram socket. The container's
+	// ping_group_range sysctl permits this without CAP_NET_RAW.
+	c, err := icmp.ListenPacket("udp4", "0.0.0.0")
 	if err != nil {
 		pe.logger.Warn("failed to listen for icmp on raw socket", "ip", ipStr, "error", err)
 		pe.savePingResult(ctx, timestamp, t.DeviceID, icmpStatus, rtt, packetLoss)
@@ -129,12 +130,13 @@ func (pe *PingEngine) pingTarget(ctx context.Context, t Target, timestamp time.T
 		return
 	}
 
-	dst, err := net.ResolveIPAddr("ip4", ipStr)
-	if err != nil {
-		pe.logger.Warn("failed to resolve ip", "ip", ipStr, "error", err)
+	parsedIP := net.ParseIP(ipStr)
+	if parsedIP == nil {
+		pe.logger.Warn("failed to parse target ip", "ip", ipStr)
 		pe.savePingResult(ctx, timestamp, t.DeviceID, icmpStatus, rtt, packetLoss)
 		return
 	}
+	dst := &net.UDPAddr{IP: parsedIP}
 
 	// 4. Set a tight read/write deadline
 	c.SetDeadline(time.Now().Add(2 * time.Second))

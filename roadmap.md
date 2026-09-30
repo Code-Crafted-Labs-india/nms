@@ -1,5 +1,11 @@
 # Project Roadmap: Custom Network Management System (NMS)
 
+> The original four-month implementation plan below documents the platform
+> foundation. The next product phase—device onboarding, detailed inventory,
+> configurable React dashboards, scalable topology, interface analytics,
+> alarm workflows, and reporting—is defined in
+> [`docs/product-future-scope.md`](docs/product-future-scope.md).
+
 This roadmap outlines the **4-month (16-week) enterprise implementation timeline** to deploy a high-performance Network Management System utilizing **Telegraf** for metric data ingestion, **TimescaleDB** for unified relational inventory and time-series storage, and **Grafana** for visualization and metric threshold alerts. Complex edge business logic (such as real-time SNMP Trap parsing, concurrent ICMP reachability checks, and notification webhook dispatching) will be executed by a lightweight, concurrent **Custom Go Middleware Application**.
 
 ---

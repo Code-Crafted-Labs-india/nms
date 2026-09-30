@@ -23,6 +23,8 @@ Thumbs.db
 .idea/
 *.log
 tmp/
+ui/node_modules/
+ui/dist/
 
 # ─── DECOVERY & TESTING TRACES ───
 # Block test coverage profiles or temporary runtime allocations

@@ -4,7 +4,7 @@ services:
     container_name: nms-timescaledb
     environment:
       - POSTGRES_USER=postgres
-      - POSTGRES_PASSWORD=yoursecurepassword
+      - POSTGRES_PASSWORD=${DB_PASSWORD:?Set DB_PASSWORD to a unique random value}
       - POSTGRES_DB=nms_db
     networks:
       - nms_net
@@ -26,6 +26,8 @@ services:
         condition: service_healthy
     networks:
       - nms_net
+    environment:
+      - DB_PASSWORD=${DB_PASSWORD:?Set DB_PASSWORD to a unique random value}
     volumes:
       - ./telegraf.conf:/etc/telegraf/telegraf.conf:ro
     restart: unless-stopped
@@ -36,11 +38,18 @@ services:
   nms-middleware:
     build: .
     container_name: nms-middleware
-    ports:
-      - "8080:8080" # Exposed so the Grafana web form can POST CRUD requests
-    cap_add:
-      - NET_ADMIN
-      - NET_RAW
+    expose:
+      - "8080"
+    environment:
+      - NMS_BOOTSTRAP_TOKEN=${NMS_BOOTSTRAP_TOKEN:?Set NMS_BOOTSTRAP_TOKEN to at least 32 random characters}
+      - NMS_DB_DSN=postgres://postgres:${DB_PASSWORD:?Set DB_PASSWORD to a unique random value}@timescaledb:5432/nms_db?sslmode=disable
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    read_only: true
+    tmpfs:
+      - /tmp:size=16m,noexec,nosuid,nodev
     sysctls:
       - net.ipv4.ping_group_range=0 2147483647
     depends_on:
@@ -49,6 +58,25 @@ services:
     networks:
       - nms_net
     stop_grace_period: 15s
+    restart: unless-stopped
+
+  nms-ui:
+    build:
+      context: ./ui
+    container_name: nms-ui
+    ports:
+      - "${NMS_BIND_ADDRESS:-127.0.0.1}:3000:8080"
+    depends_on:
+      - nms-middleware
+    networks:
+      - nms_net
+    read_only: true
+    tmpfs:
+      - /tmp:size=16m,noexec,nosuid,nodev
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
     restart: unless-stopped
 
   mock-switch-01:
@@ -161,10 +189,10 @@ services:
     image: nms-grafana:latest
     container_name: nms-grafana
     ports:
-      - "3000:3000"
+      - "${NMS_BIND_ADDRESS:-127.0.0.1}:3001:3000"
     environment:
-      - GF_SECURITY_ADMIN_PASSWORD=${GRAFANA_ADMIN_PASSWORD:-admin}
-      - DB_PASS=${DB_PASSWORD:-yoursecurepassword}
+      - GF_SECURITY_ADMIN_PASSWORD=${GRAFANA_ADMIN_PASSWORD:?Set GRAFANA_ADMIN_PASSWORD to a unique random value}
+      - DB_PASS=${DB_PASSWORD:?Set DB_PASSWORD to a unique random value}
       - GF_PLUGINS_ALLOW_LOADING_UNSIGNED_PLUGINS=volkovlabs-form-panel
     # Hard-force installation through the CLI boot vector before launching Grafana
     entrypoint: >

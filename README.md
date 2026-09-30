@@ -194,6 +194,34 @@ The system components actively capture raw metrics that formulate the functional
 
 ## 🚀 Deployment & Operational Verification
 
+For complete setup, development, verification, shutdown, and troubleshooting
+instructions, see [`docs/running.md`](docs/running.md).
+
+The prioritized operator-product roadmap derived from the supplied NMS
+references is documented in
+[`docs/product-future-scope.md`](docs/product-future-scope.md).
+
+### Secure React command center
+
+The operator UI is a static React/TypeScript application built with Bun, Vite,
+and Tailwind CSS. It is available at `http://127.0.0.1:3000` by default;
+Grafana remains engineering-only at `http://127.0.0.1:3001`.
+
+Create local secrets before starting the stack:
+
+```bash
+cp .env.example .env
+# Replace every placeholder. Generate the operator token with:
+openssl rand -base64 48
+docker compose up --build -d
+```
+
+Enter the `NMS_BOOTSTRAP_TOKEN` value stored in the Git-ignored `.env` at the
+command-center login. Retrieval and rotation instructions are in
+[`docs/running.md`](docs/running.md). For any networked deployment, terminate
+approved TLS in front of the UI and complete the controls in
+`docs/ui-security-baseline.md`; the loopback HTTP binding is development only.
+
 ### Complete Environment Initialization
 
 Spin up the coordinated core pipeline infrastructure stack using Docker Compose:

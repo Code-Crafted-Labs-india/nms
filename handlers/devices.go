@@ -29,16 +29,16 @@ func jsonResponse(w http.ResponseWriter, status int, body map[string]string) {
 	json.NewEncoder(w).Encode(body)
 }
 
-// setupCORS writes the CORS headers required for Grafana Business Forms to reach
-// the middleware from a separate Docker container. Returns true if this was a
-// preflight OPTIONS request (caller should return immediately after).
+// setupCORS deliberately supports same-origin requests only. The UI reverse
+// proxies /api, so cross-origin browser access is unnecessary.
 func setupCORS(w http.ResponseWriter, r *http.Request) bool {
-	w.Header().Set("Access-Control-Allow-Origin", "*")
-	w.Header().Set("Access-Control-Allow-Methods", "POST, PUT, DELETE, OPTIONS")
-	w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
+	if !sameOrigin(r) {
+		jsonResponse(w, http.StatusForbidden, map[string]string{"error": "origin rejected"})
+		return true
+	}
 
 	if r.Method == http.MethodOptions {
-		w.WriteHeader(http.StatusOK)
+		w.WriteHeader(http.StatusNoContent)
 		return true
 	}
 	return false
@@ -77,7 +77,7 @@ func AddDeviceHandler(database *db.DB) http.HandlerFunc {
 		}
 
 		var payload DevicePayload
-		if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+		if err := decodeJSON(w, r, &payload); err != nil {
 			apiLogger.Error("[API] Failed to decode add device payload", "err", err)
 			jsonResponse(w, http.StatusBadRequest, map[string]string{"error": "Invalid request payload"})
 			return
@@ -128,7 +128,7 @@ func EditDeviceHandler(database *db.DB) http.HandlerFunc {
 		}
 
 		var payload DevicePayload
-		if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+		if err := decodeJSON(w, r, &payload); err != nil {
 			apiLogger.Error("[API] Failed to decode edit device payload", "err", err)
 			jsonResponse(w, http.StatusBadRequest, map[string]string{"error": "Invalid request payload"})
 			return
