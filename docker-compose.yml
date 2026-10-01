@@ -179,6 +179,193 @@ services:
       nms_net:
         ipv4_address: 192.168.10.30
 
+  # ── second core / distribution tier ─────────────────────────────────────────
+  mock-core-02:
+    build:
+      context: .
+      dockerfile: Dockerfile.mock
+    container_name: mock-core-02
+    hostname: mock-core-02
+    cap_add:
+      - NET_ADMIN
+    environment:
+      - DEVICE_TYPE=core
+      - BASE_CPU_IDLE=55      # secondary core, lighter steady-state
+      - MEM_TOTAL_KB=16777216 # 16 GB
+      - MEM_USED_PCT=44
+      - PEER_IPS=192.168.10.30 192.168.10.12 192.168.10.13 192.168.10.21
+      - PING_INTERVAL=0.03
+      - PING_SIZE=1400
+    networks:
+      nms_net:
+        ipv4_address: 192.168.10.31
+
+  # ── distribution switch (aggregation layer) ───────────────────────────────────
+  mock-dist-sw-01:
+    build:
+      context: .
+      dockerfile: Dockerfile.mock
+    container_name: mock-dist-sw-01
+    hostname: mock-dist-sw-01
+    cap_add:
+      - NET_ADMIN
+    environment:
+      - DEVICE_TYPE=switch
+      - BASE_CPU_IDLE=68      # distribution switch, moderate
+      - MEM_TOTAL_KB=8388608  # 8 GB
+      - MEM_USED_PCT=31
+      - PEER_IPS=192.168.10.30 192.168.10.31 192.168.10.12 192.168.10.13
+      - PING_INTERVAL=0.08
+      - PING_SIZE=900
+    networks:
+      nms_net:
+        ipv4_address: 192.168.10.40
+
+  # ── access switch tier (three more access switches) ───────────────────────────
+  mock-switch-03:
+    build:
+      context: .
+      dockerfile: Dockerfile.mock
+    container_name: mock-switch-03
+    hostname: mock-switch-03
+    cap_add:
+      - NET_ADMIN
+    environment:
+      - DEVICE_TYPE=switch
+      - BASE_CPU_IDLE=82      # mostly idle access switch
+      - MEM_TOTAL_KB=4194304  # 4 GB
+      - MEM_USED_PCT=19
+      - PEER_IPS=192.168.10.40
+      - PING_INTERVAL=0.2
+      - PING_SIZE=512
+    networks:
+      nms_net:
+        ipv4_address: 192.168.10.12
+
+  mock-switch-04:
+    build:
+      context: .
+      dockerfile: Dockerfile.mock
+    container_name: mock-switch-04
+    hostname: mock-switch-04
+    cap_add:
+      - NET_ADMIN
+    environment:
+      - DEVICE_TYPE=switch
+      - BASE_CPU_IDLE=79      # normal access switch
+      - MEM_TOTAL_KB=4194304  # 4 GB
+      - MEM_USED_PCT=27
+      - PEER_IPS=192.168.10.40
+      - PING_INTERVAL=0.18
+      - PING_SIZE=512
+    networks:
+      nms_net:
+        ipv4_address: 192.168.10.13
+
+  # ── STRESSED switch — deliberately high CPU and memory to trigger alarm rules ─
+  mock-switch-stressed:
+    build:
+      context: .
+      dockerfile: Dockerfile.mock
+    container_name: mock-switch-stressed
+    hostname: mock-switch-stressed
+    cap_add:
+      - NET_ADMIN
+    environment:
+      - DEVICE_TYPE=switch
+      - BASE_CPU_IDLE=8       # ~92% CPU → fires HighCPUUtilizationStrategy
+      - MEM_TOTAL_KB=4194304  # 4 GB
+      - MEM_USED_PCT=92       # ~92% used → fires HighMemoryUtilizationStrategy
+      - PEER_IPS=192.168.10.30 192.168.10.31
+      - PING_INTERVAL=0.12
+      - PING_SIZE=768
+    networks:
+      nms_net:
+        ipv4_address: 192.168.10.14
+
+  # ── WAN edge router ───────────────────────────────────────────────────────────
+  mock-wan-edge-01:
+    build:
+      context: .
+      dockerfile: Dockerfile.mock
+    container_name: mock-wan-edge-01
+    hostname: mock-wan-edge-01
+    cap_add:
+      - NET_ADMIN
+    environment:
+      - DEVICE_TYPE=router
+      - BASE_CPU_IDLE=45      # WAN edge under sustained load
+      - MEM_TOTAL_KB=8388608  # 8 GB
+      - MEM_USED_PCT=55
+      - PEER_IPS=192.168.10.19 192.168.10.20 192.168.10.30
+      - PING_INTERVAL=0.06
+      - PING_SIZE=1300
+    networks:
+      nms_net:
+        ipv4_address: 192.168.10.21
+
+  # ── firewalls ─────────────────────────────────────────────────────────────────
+  mock-fw-01:
+    build:
+      context: .
+      dockerfile: Dockerfile.mock
+    container_name: mock-fw-01
+    hostname: mock-fw-01
+    cap_add:
+      - NET_ADMIN
+    environment:
+      - DEVICE_TYPE=router    # firewall is router-class for interface count
+      - BASE_CPU_IDLE=60      # primary firewall
+      - MEM_TOTAL_KB=8388608  # 8 GB
+      - MEM_USED_PCT=42
+      - PEER_IPS=192.168.10.21 192.168.10.30
+      - PING_INTERVAL=0.1
+      - PING_SIZE=800
+    networks:
+      nms_net:
+        ipv4_address: 192.168.10.50
+
+  mock-fw-02:
+    build:
+      context: .
+      dockerfile: Dockerfile.mock
+    container_name: mock-fw-02
+    hostname: mock-fw-02
+    cap_add:
+      - NET_ADMIN
+    environment:
+      - DEVICE_TYPE=router    # secondary/HA firewall
+      - BASE_CPU_IDLE=65      # HA standby, lower load
+      - MEM_TOTAL_KB=8388608  # 8 GB
+      - MEM_USED_PCT=38
+      - PEER_IPS=192.168.10.50 192.168.10.30
+      - PING_INTERVAL=0.1
+      - PING_SIZE=800
+    networks:
+      nms_net:
+        ipv4_address: 192.168.10.51
+
+  # ── out-of-band management switch ────────────────────────────────────────────
+  mock-oob-mgmt:
+    build:
+      context: .
+      dockerfile: Dockerfile.mock
+    container_name: mock-oob-mgmt
+    hostname: mock-oob-mgmt
+    cap_add:
+      - NET_ADMIN
+    environment:
+      - DEVICE_TYPE=switch
+      - BASE_CPU_IDLE=91      # OOB mgmt switch, very quiet
+      - MEM_TOTAL_KB=2097152  # 2 GB
+      - MEM_USED_PCT=12
+      - PEER_IPS=192.168.10.30
+      - PING_INTERVAL=0.5
+      - PING_SIZE=256
+    networks:
+      nms_net:
+        ipv4_address: 192.168.10.60
+
   # =========================================================================
   # MONITORING PRESENTATION
   # =========================================================================
