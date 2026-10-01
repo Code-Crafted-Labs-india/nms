@@ -150,6 +150,19 @@ var schema = []tableSpec{
 			{name: "model_name", dataType: "TEXT", allowNull: false},
 		},
 	},
+	{
+		// network_events: alarm lifecycle store.
+		// TimescaleDB hypertables cannot have a SERIAL PK added after creation via
+		// ALTER TABLE, so we ensure the columns exist via the idempotent ADD COLUMN.
+		// The 'id' column is used by the manual alarm-resolve endpoint.
+		// alarm_id catalog:
+		//   1=device_down  2=link_down  3=high_cpu  4=admin_oper_mismatch
+		//   5=high_memory  6=snmp_failure
+		name: "network_events",
+		columns: []columnSpec{
+			{name: "resolved_at", dataType: "TIMESTAMPTZ", allowNull: true},
+		},
+	},
 }
 
 // RunMigrations is the self-healing schema synchronization entry point.

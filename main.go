@@ -92,7 +92,9 @@ func main() {
 		alert.NewDeviceDownStrategy(logger, 1*time.Minute),
 		alert.NewLinkStateStrategy(logger),
 		alert.NewAdminOperMismatchStrategy(logger),
-		alert.NewHighCPUUtilizationStrategy(logger, 85.0), // Alarm fires if sustained usage surpasses 85%
+		alert.NewHighCPUUtilizationStrategy(logger, 85.0),                             // Alarm #3 (CPU) — fires above 85%
+		alert.NewHighMemoryUtilizationStrategy(logger, 80.0, 95.0),                    // Alarm #3 (Memory) — warning=80%, critical=95%
+		alert.NewSNMPCommunicationFailureStrategy(logger, 5*time.Minute),              // Alarm #4 — stale window 5 min
 	}
 	logger.Info("Registered operational network alarm matrix successfully", "count", len(strategies))
 
@@ -110,6 +112,11 @@ func main() {
 	// Explicit OPTIONS routes for preflight on parameterized paths
 	mux.Handle("OPTIONS /api/devices", handlers.RequestLogger(handlers.PreflightHandler()))
 	mux.Handle("OPTIONS /api/devices/{id}", handlers.RequestLogger(handlers.PreflightHandler()))
+	// P0 Inventory endpoints: paginated fleet list and per-device detail
+	mux.Handle("GET /api/v1/devices", sessions.Authenticate(handlers.RequestLogger(handlers.InventoryHandler(database))))
+	mux.Handle("GET /api/v1/devices/{id}", sessions.Authenticate(handlers.RequestLogger(handlers.DeviceDetailHandler(database))))
+	// Alarm management: manual resolve
+	mux.Handle("POST /api/v1/alarms/{id}/resolve", sessions.Authenticate(handlers.RequestLogger(handlers.ResolveAlarmHandler(database))))
 
 	// Binding to :8080 (all interfaces) is required when Grafana runs in a
 	// separate Docker container — binding to 127.0.0.1 would be unreachable

@@ -112,6 +112,9 @@ CREATE TABLE IF NOT EXISTS network_events (
     time TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     device_id INT REFERENCES devices(id) ON DELETE CASCADE,
     alarm_id INT NOT NULL,
+    -- alarm_id catalog:
+    --   1=device_down  2=link_down  3=high_cpu  4=admin_oper_mismatch
+    --   5=high_memory  6=snmp_failure
     event_type VARCHAR(100) NOT NULL,
     severity VARCHAR(20) NOT NULL CHECK (severity IN ('INFO', 'WARNING', 'CRITICAL')),
     message TEXT,

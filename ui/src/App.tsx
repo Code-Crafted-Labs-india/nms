@@ -1,15 +1,24 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import type { FormEvent } from 'react'
 import {
-  Activity, AlertTriangle, Bell, Boxes, CircleCheck, Cpu, LayoutDashboard,
-  LockKeyhole, LogOut, MemoryStick, Network, Radio, RefreshCw, Search,
-  Server, ShieldCheck, Wifi, WifiOff,
+  Activity, AlertTriangle, Bell, Boxes, CheckCircle, ChevronLeft, ChevronRight,
+  CircleCheck, Cpu, Filter, LayoutDashboard, LockKeyhole, LogOut,
+  MemoryStick, Network, Radio, RefreshCw, Search,
+  Server, ShieldCheck, Wifi, WifiOff, X, Zap,
 } from 'lucide-react'
-import { ApiError, dashboardApi, type DashboardData, type MetricPoint } from './api'
+import {
+  ApiError, dashboardApi,
+  type DashboardData, type MetricPoint,
+  type InventoryDevice, type DeviceDetail, type DeviceAlarm, type DeviceInterface,
+} from './api'
 
-type View = 'overview' | 'topology' | 'devices' | 'alerts'
-const emptyDashboard: DashboardData = { generatedAt: '', overview: { monitored: 0, online: 0, offline: 0, openAlerts: 0 }, devices: [], events: [], latency: [], cpu: [], memory: [], topology: [] }
+type View = 'overview' | 'topology' | 'devices' | 'alerts' | 'inventory'
+const emptyDashboard: DashboardData = {
+  generatedAt: '', overview: { monitored: 0, online: 0, offline: 0, openAlerts: 0 },
+  devices: [], events: [], latency: [], cpu: [], memory: [], topology: [],
+}
 
+// ────────────────────────── LOGIN ──────────────────────────
 function Login({ onAuthenticated }: { onAuthenticated: () => void }) {
   const [token, setToken] = useState('')
   const [error, setError] = useState('')
@@ -31,6 +40,7 @@ function Login({ onAuthenticated }: { onAuthenticated: () => void }) {
   </main>
 }
 
+// ────────────────────────── SPARKLINE ──────────────────────────
 function Sparkline({ points, color = '#34d399' }: { points: MetricPoint[], color?: string }) {
   const values = points.slice(-36).map(point => point.value)
   if (values.length < 2) return <div className="grid h-28 place-items-center text-xs text-slate-600">Awaiting telemetry</div>
@@ -39,6 +49,7 @@ function Sparkline({ points, color = '#34d399' }: { points: MetricPoint[], color
   return <svg viewBox="0 0 300 110" className="h-28 w-full overflow-visible" role="img" aria-label="Recent metric trend">{[20, 60, 100].map(y => <line key={y} x1="0" x2="300" y1={y} y2={y} stroke="rgba(148,163,184,.09)" />)}<polyline points={line} fill="none" stroke={color} strokeWidth="2.2" strokeLinejoin="round" strokeLinecap="round" /></svg>
 }
 
+// ────────────────────────── STAT CARD ──────────────────────────
 function Stat({ label, value, detail, icon, tone = 'emerald' }: { label: string, value: number, detail: string, icon: React.ReactNode, tone?: 'emerald'|'rose'|'amber'|'sky' }) {
   const tones = { emerald:'text-emerald-300 bg-emerald-400/10 border-emerald-400/20', rose:'text-rose-300 bg-rose-400/10 border-rose-400/20', amber:'text-amber-300 bg-amber-400/10 border-amber-400/20', sky:'text-sky-300 bg-sky-400/10 border-sky-400/20' }
   return <article className="panel p-5"><div className="flex items-start justify-between"><div><p className="label">{label}</p><p className="mt-3 text-3xl font-semibold tracking-tight text-white">{value}</p></div><div className={`grid size-10 place-items-center rounded-lg border ${tones[tone]}`}>{icon}</div></div><p className="mt-4 text-xs text-slate-500">{detail}</p></article>
@@ -49,10 +60,12 @@ function MetricCard({ title, icon, points, color, suffix }: { title:string, icon
   return <article className="panel p-5"><header className="flex items-center justify-between"><div className="flex items-center gap-2 text-sm font-semibold text-slate-200">{icon}{title}</div><div className="text-lg font-semibold text-white">{last == null ? '—' : `${last.toFixed(1)}${suffix}`}</div></header><div className="mt-2"><Sparkline points={points} color={color}/></div></article>
 }
 
+// ────────────────────────── DEVICE TABLE ──────────────────────────
 function DeviceTable({ devices }: { devices: DashboardData['devices'] }) {
   return <section className="panel mt-4 overflow-hidden"><header className="flex items-center justify-between border-b border-white/7 px-5 py-4"><div><p className="label">Asset status</p><h2 className="mt-1 font-semibold text-white">Managed infrastructure</h2></div><Network className="text-slate-500" size={20}/></header><div className="overflow-x-auto"><table className="w-full min-w-[700px] text-left text-sm"><thead className="bg-black/10 text-[11px] uppercase tracking-wider text-slate-500"><tr><th>Asset</th><th>Address</th><th>Role</th><th>Location</th><th>Latency</th><th>Status</th></tr></thead><tbody>{devices.map(device=><tr key={device.id} className="border-t border-white/[.055]"><td><div className="font-medium text-slate-200">{device.hostname}</div></td><td className="font-mono text-xs text-slate-400">{device.ipAddress}</td><td>{device.type}</td><td>{device.location}</td><td>{device.rttMs == null ? '—' : `${device.rttMs.toFixed(1)} ms`}</td><td><span className={`status ${device.status === 'online' ? 'status-up':'status-down'}`}><span className="size-1.5 rounded-full bg-current"/>{device.status}</span></td></tr>)}</tbody></table>{!devices.length && <div className="p-10 text-center text-sm text-slate-500">No managed assets returned by the telemetry service.</div>}</div></section>
 }
 
+// ────────────────────────── TOPOLOGY ──────────────────────────
 function TopologyMap({ data }: { data: DashboardData }) {
   const nodes = useMemo(() => {
     const names = new Set(data.devices.map(device => device.hostname))
@@ -100,6 +113,7 @@ function TopologyMap({ data }: { data: DashboardData }) {
   </section>
 }
 
+// ────────────────────────── OVERVIEW ──────────────────────────
 function Overview({ data }: { data: DashboardData }) {
   const latency = useMemo(() => data.latency.slice(-80), [data.latency])
   const health = data.overview.monitored ? Math.round(data.overview.online / data.overview.monitored * 100) : 0
@@ -108,20 +122,411 @@ function Overview({ data }: { data: DashboardData }) {
     <section className="mt-4 grid gap-4 xl:grid-cols-2"><MetricCard title="CPU utilization" icon={<Cpu size={17}/>} points={data.cpu} color="#38bdf8" suffix="%" /><MetricCard title="Memory utilization" icon={<MemoryStick size={17}/>} points={data.memory} color="#a78bfa" suffix="%" /></section><DeviceTable devices={data.devices.slice(0, 6)} /></>
 }
 
+// ────────────────────────── ALERTS ──────────────────────────
 function Alerts({ events }: { events: DashboardData['events'] }) {
   return <section className="panel overflow-hidden"><header className="border-b border-white/7 px-5 py-5"><p className="label">Event stream</p><h2 className="mt-1 text-lg font-semibold text-white">Active alerts</h2></header><div className="divide-y divide-white/[.06]">{events.map((event,index)=><article key={`${event.time}-${index}`} className="flex gap-4 p-5"><div className={`mt-0.5 grid size-9 shrink-0 place-items-center rounded-lg ${event.severity==='CRITICAL'?'bg-rose-400/10 text-rose-300':'bg-amber-400/10 text-amber-300'}`}><AlertTriangle size={17}/></div><div className="min-w-0 flex-1"><div className="flex flex-wrap items-center gap-2"><strong className="text-sm text-slate-200">{event.type}</strong><span className="text-xs text-slate-500">{event.device}</span></div><p className="mt-1 text-sm text-slate-400">{event.message}</p><time className="mt-2 block text-xs text-slate-600">{formatTime(event.time)}</time></div></article>)}{!events.length&&<div className="grid place-items-center gap-3 p-16 text-sm text-slate-500"><CircleCheck size={28} className="text-emerald-400"/>No unresolved alerts</div>}</div></section>
 }
 
+// ────────────────────────── DEVICE DETAIL PANEL ──────────────────────────
+function StatusBadge({ status }: { status: string }) {
+  const map: Record<string, string> = {
+    online: 'bg-emerald-400/10 text-emerald-300 border-emerald-400/20',
+    offline: 'bg-rose-400/10 text-rose-300 border-rose-400/20',
+    unknown: 'bg-slate-400/10 text-slate-400 border-slate-400/20',
+  }
+  return <span className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs font-medium ${map[status] ?? map.unknown}`}><span className="size-1.5 rounded-full bg-current"/>{status}</span>
+}
+
+function AlarmRow({ alarm, onResolve }: { alarm: DeviceAlarm; onResolve: (id: number) => void }) {
+  const sevColor = alarm.severity === 'CRITICAL' ? 'text-rose-300' : alarm.severity === 'WARNING' ? 'text-amber-300' : 'text-slate-400'
+  return <div className="flex items-start gap-3 border-b border-white/[.055] py-3 last:border-0">
+    <AlertTriangle size={15} className={`mt-0.5 shrink-0 ${sevColor}`} />
+    <div className="min-w-0 flex-1">
+      <div className="flex flex-wrap items-center gap-2">
+        <span className={`text-xs font-semibold ${sevColor}`}>{alarm.severity}</span>
+        <span className="text-xs text-slate-500">{alarm.eventType}</span>
+        {alarm.resolved && <span className="rounded bg-emerald-400/10 px-1.5 py-0.5 text-[10px] text-emerald-300">resolved</span>}
+      </div>
+      <p className="mt-1 text-xs text-slate-400">{alarm.message}</p>
+      <time className="mt-1 block text-[10px] text-slate-600">{formatTime(alarm.time)}</time>
+    </div>
+    {!alarm.resolved && (
+      <button onClick={() => onResolve(alarm.id)} title="Resolve alarm"
+        className="mt-0.5 grid size-7 shrink-0 place-items-center rounded-lg border border-emerald-400/20 bg-emerald-400/10 text-emerald-300 hover:bg-emerald-400/20 transition">
+        <CheckCircle size={13}/>
+      </button>
+    )}
+  </div>
+}
+
+function InterfaceRow({ iface }: { iface: DeviceInterface }) {
+  const operColor = iface.operStatus === 1 ? 'text-emerald-400' : 'text-rose-400'
+  const speedStr = iface.speedBps ? (iface.speedBps >= 1e9 ? `${(iface.speedBps/1e9).toFixed(0)}G` : `${(iface.speedBps/1e6).toFixed(0)}M`) : '—'
+  return <tr className="border-t border-white/[.05] text-xs">
+    <td className="py-2 pr-3 font-mono text-slate-300">{iface.ifDescr}</td>
+    <td><span className={operColor}>{iface.operStatus === 1 ? 'UP' : iface.operStatus === 2 ? 'DOWN' : '?'}</span></td>
+    <td className="text-slate-500">{speedStr}</td>
+    <td className="text-slate-500">{iface.rxBytesDelta != null ? `${(iface.rxBytesDelta/1024).toFixed(0)} KB` : '—'}</td>
+    <td className="text-slate-500">{iface.txBytesDelta != null ? `${(iface.txBytesDelta/1024).toFixed(0)} KB` : '—'}</td>
+    <td className="text-rose-400/80">{(iface.rxErrors ?? 0) + (iface.txErrors ?? 0) > 0 ? (iface.rxErrors ?? 0) + (iface.txErrors ?? 0) : '—'}</td>
+  </tr>
+}
+
+function DeviceDetailPanel({ deviceId, onClose }: { deviceId: number; onClose: () => void }) {
+  const [detail, setDetail] = useState<DeviceDetail | null>(null)
+  const [loading, setLoading] = useState(true)
+  const [tab, setTab] = useState<'overview'|'interfaces'|'alarms'>('overview')
+
+  const load = useCallback(async () => {
+    setLoading(true)
+    try { setDetail(await dashboardApi.deviceDetail(deviceId)) } finally { setLoading(false) }
+  }, [deviceId])
+
+  useEffect(() => { load() }, [load])
+
+  async function resolveAlarm(id: number) {
+    await dashboardApi.resolveAlarm(id)
+    load()
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-start justify-end bg-black/50 backdrop-blur-sm" onClick={onClose}>
+      <aside className="h-full w-full max-w-2xl overflow-y-auto bg-[#0c1716] shadow-2xl"
+        onClick={e => e.stopPropagation()}>
+        <header className="sticky top-0 z-10 flex items-center justify-between border-b border-white/8 bg-[#0c1716]/95 px-6 py-4 backdrop-blur">
+          <div>
+            <p className="text-xs font-semibold uppercase tracking-widest text-emerald-400">Device detail</p>
+            <h2 className="text-lg font-semibold text-white">{detail?.hostname ?? '…'}</h2>
+          </div>
+          <button onClick={onClose} className="grid size-9 place-items-center rounded-lg border border-white/10 text-slate-500 hover:text-white"><X size={18}/></button>
+        </header>
+
+        {loading && <div className="grid h-64 place-items-center"><RefreshCw className="animate-spin text-emerald-400" size={24}/></div>}
+
+        {!loading && detail && <>
+          {/* Identity row */}
+          <div className="grid grid-cols-2 gap-3 border-b border-white/8 p-6 sm:grid-cols-4">
+            {[
+              { label: 'IP address', value: detail.ipAddress },
+              { label: 'Type', value: detail.deviceType },
+              { label: 'Location', value: detail.location },
+              { label: 'SNMP', value: detail.snmpVersion },
+            ].map(item => (
+              <div key={item.label}>
+                <p className="text-[10px] uppercase tracking-widest text-slate-600">{item.label}</p>
+                <p className="mt-1 text-sm text-slate-200">{item.value}</p>
+              </div>
+            ))}
+          </div>
+
+          {/* Status bar */}
+          <div className="flex flex-wrap items-center gap-4 border-b border-white/8 px-6 py-4">
+            <StatusBadge status={detail.status} />
+            {detail.rttMs != null && <span className="text-sm text-slate-400">RTT <strong className="text-white">{detail.rttMs.toFixed(1)} ms</strong></span>}
+            {detail.packetLoss != null && detail.packetLoss > 0 && <span className="text-sm text-rose-300">Loss <strong>{detail.packetLoss.toFixed(1)}%</strong></span>}
+            {detail.cpuUtilization != null && <span className="flex items-center gap-1 text-sm text-slate-400"><Cpu size={13}/><strong className="text-white">{detail.cpuUtilization.toFixed(1)}%</strong> CPU</span>}
+            {detail.memoryUtilization != null && <span className="flex items-center gap-1 text-sm text-slate-400"><MemoryStick size={13}/><strong className="text-white">{detail.memoryUtilization.toFixed(1)}%</strong> Mem</span>}
+            {detail.openAlarmCount > 0 && <span className="flex items-center gap-1 text-sm text-amber-300"><AlertTriangle size={13}/>{detail.openAlarmCount} open alarm{detail.openAlarmCount !== 1 && 's'}</span>}
+          </div>
+
+          {/* Tabs */}
+          <div className="flex border-b border-white/8">
+            {(['overview','interfaces','alarms'] as const).map(t => (
+              <button key={t} onClick={() => setTab(t)}
+                className={`px-5 py-3 text-xs font-semibold uppercase tracking-wider transition ${tab === t ? 'border-b-2 border-emerald-400 text-emerald-300' : 'text-slate-500 hover:text-slate-300'}`}>
+                {t}{t === 'alarms' && detail.alarms.length > 0 ? ` (${detail.alarms.length})` : ''}
+              </button>
+            ))}
+          </div>
+
+          {/* Tab body */}
+          <div className="p-6">
+            {tab === 'overview' && (
+              <div className="space-y-4">
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="rounded-xl border border-white/8 bg-white/[.02] p-4">
+                    <p className="text-[10px] uppercase tracking-widest text-slate-600">Last poll</p>
+                    <p className="mt-1 text-sm text-slate-200">{detail.lastPoll ? formatTime(detail.lastPoll) : '—'}</p>
+                  </div>
+                  <div className="rounded-xl border border-white/8 bg-white/[.02] p-4">
+                    <p className="text-[10px] uppercase tracking-widest text-slate-600">Discovered</p>
+                    <p className="mt-1 text-sm text-slate-200">{formatTime(detail.createdAt)}</p>
+                  </div>
+                </div>
+                <div className="rounded-xl border border-white/8 bg-white/[.02] p-4">
+                  <p className="mb-3 text-[10px] uppercase tracking-widest text-slate-600">Interface summary</p>
+                  <div className="flex gap-6 text-sm">
+                    <div><p className="text-slate-500">Up</p><p className="text-2xl font-semibold text-emerald-300">{detail.interfaces.filter(i=>i.operStatus===1).length}</p></div>
+                    <div><p className="text-slate-500">Down</p><p className="text-2xl font-semibold text-rose-300">{detail.interfaces.filter(i=>i.operStatus===2).length}</p></div>
+                    <div><p className="text-slate-500">Total</p><p className="text-2xl font-semibold text-white">{detail.interfaces.length}</p></div>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {tab === 'interfaces' && (
+              <div className="overflow-x-auto">
+                <table className="w-full min-w-[500px] text-left">
+                  <thead className="text-[10px] uppercase tracking-wider text-slate-600">
+                    <tr><th className="pb-2 pr-3">Interface</th><th className="pb-2">State</th><th className="pb-2">Speed</th><th className="pb-2">RX</th><th className="pb-2">TX</th><th className="pb-2">Errors</th></tr>
+                  </thead>
+                  <tbody>{detail.interfaces.map(iface => <InterfaceRow key={iface.id} iface={iface}/>)}</tbody>
+                </table>
+                {!detail.interfaces.length && <p className="py-8 text-center text-sm text-slate-500">No interface data available.</p>}
+              </div>
+            )}
+
+            {tab === 'alarms' && (
+              <div>
+                {detail.alarms.map(alarm => <AlarmRow key={alarm.id} alarm={alarm} onResolve={resolveAlarm}/>)}
+                {!detail.alarms.length && <div className="grid place-items-center gap-3 py-12 text-sm text-slate-500"><CircleCheck size={24} className="text-emerald-400"/>No alarm history for this device.</div>}
+              </div>
+            )}
+          </div>
+        </>}
+      </aside>
+    </div>
+  )
+}
+
+// ────────────────────────── INVENTORY VIEW ──────────────────────────
+function InventoryView() {
+  const [devices, setDevices] = useState<InventoryDevice[]>([])
+  const [total, setTotal] = useState(0)
+  const [page, setPage] = useState(1)
+  const [totalPages, setTotalPages] = useState(1)
+  const [loading, setLoading] = useState(false)
+  const [search, setSearch] = useState('')
+  const [statusFilter, setStatusFilter] = useState('')
+  const [typeFilter, setTypeFilter] = useState('')
+  const [selectedId, setSelectedId] = useState<number|null>(null)
+
+  const load = useCallback(async () => {
+    setLoading(true)
+    try {
+      const params: Record<string, string|number> = { page, page_size: 50 }
+      if (search) params.q = search
+      if (statusFilter) params.status = statusFilter
+      if (typeFilter) params.type = typeFilter
+      const res = await dashboardApi.inventory(params)
+      setDevices(res.devices ?? [])
+      setTotal(res.total ?? 0)
+      setTotalPages(res.totalPages ?? 1)
+    } finally {
+      setLoading(false)
+    }
+  }, [page, search, statusFilter, typeFilter])
+
+  useEffect(() => { load() }, [load])
+
+  const statusColors: Record<string, string> = {
+    online:  'text-emerald-300 border-emerald-400/30 bg-emerald-400/10',
+    offline: 'text-rose-300 border-rose-400/30 bg-rose-400/10',
+    unknown: 'text-slate-400 border-slate-600/30 bg-slate-400/10',
+  }
+
+  return (
+    <div className="space-y-4">
+      {/* Filters bar */}
+      <div className="panel flex flex-wrap items-center gap-3 p-4">
+        <div className="relative flex-1 min-w-48">
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-600" size={14}/>
+          <input value={search} onChange={e=>{setSearch(e.target.value);setPage(1)}}
+            placeholder="Search hostname or IP…"
+            className="w-full rounded-lg border border-white/8 bg-black/20 py-2 pl-9 pr-3 text-sm outline-none focus:border-emerald-400/40"/>
+        </div>
+        <div className="flex items-center gap-2">
+          <Filter size={14} className="text-slate-500"/>
+          <select value={statusFilter} onChange={e=>{setStatusFilter(e.target.value);setPage(1)}}
+            className="rounded-lg border border-white/8 bg-[#0c1716] px-3 py-2 text-sm text-slate-300 outline-none focus:border-emerald-400/40">
+            <option value="">All statuses</option>
+            <option value="online">Online</option>
+            <option value="offline">Offline</option>
+            <option value="unknown">Unknown</option>
+          </select>
+          <input value={typeFilter} onChange={e=>{setTypeFilter(e.target.value);setPage(1)}}
+            placeholder="Filter by type…"
+            className="rounded-lg border border-white/8 bg-black/20 px-3 py-2 text-sm text-slate-300 outline-none focus:border-emerald-400/40 w-36"/>
+        </div>
+        <div className="ml-auto flex items-center gap-2 text-xs text-slate-500">
+          {loading ? <RefreshCw size={13} className="animate-spin"/> : null}
+          <span>{total} device{total !== 1 ? 's' : ''}</span>
+        </div>
+      </div>
+
+      {/* Table */}
+      <div className="panel overflow-hidden">
+        <div className="overflow-x-auto">
+          <table className="w-full min-w-[900px] text-left text-sm">
+            <thead className="bg-black/10 text-[11px] uppercase tracking-wider text-slate-500">
+              <tr>
+                <th className="px-4 py-3">Hostname</th>
+                <th className="px-4 py-3">Address</th>
+                <th className="px-4 py-3">Type</th>
+                <th className="px-4 py-3">Location</th>
+                <th className="px-4 py-3">Status</th>
+                <th className="px-4 py-3">RTT</th>
+                <th className="px-4 py-3">Interfaces</th>
+                <th className="px-4 py-3">Alarms</th>
+                <th className="px-4 py-3">Last poll</th>
+              </tr>
+            </thead>
+            <tbody>
+              {devices.map(device => (
+                <tr key={device.id}
+                  onClick={() => setSelectedId(device.id)}
+                  className="cursor-pointer border-t border-white/[.05] transition hover:bg-white/[.025]">
+                  <td className="px-4 py-3 font-medium text-slate-200">{device.hostname}</td>
+                  <td className="px-4 py-3 font-mono text-xs text-slate-400">{device.ipAddress}</td>
+                  <td className="px-4 py-3 text-slate-400">{device.deviceType}</td>
+                  <td className="px-4 py-3 text-slate-400">{device.location}</td>
+                  <td className="px-4 py-3">
+                    <span className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-0.5 text-xs font-medium ${statusColors[device.status] ?? statusColors.unknown}`}>
+                      <span className="size-1.5 rounded-full bg-current"/>
+                      {device.status}
+                    </span>
+                  </td>
+                  <td className="px-4 py-3 text-slate-400">{device.rttMs != null ? `${device.rttMs.toFixed(1)} ms` : '—'}</td>
+                  <td className="px-4 py-3 text-xs">
+                    <span className="text-emerald-400">{device.upInterfaces}↑</span>
+                    {device.downInterfaces > 0 && <span className="ml-1 text-rose-400">{device.downInterfaces}↓</span>}
+                  </td>
+                  <td className="px-4 py-3">
+                    {device.openAlarms > 0
+                      ? <span className="inline-flex items-center gap-1 rounded bg-amber-400/10 px-2 py-0.5 text-xs text-amber-300"><AlertTriangle size={11}/>{device.openAlarms}</span>
+                      : <span className="text-xs text-slate-600">—</span>}
+                  </td>
+                  <td className="px-4 py-3 text-xs text-slate-600">{device.lastPoll ? formatTime(device.lastPoll) : '—'}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+          {!loading && !devices.length && <div className="p-12 text-center text-sm text-slate-500">No devices match the current filters.</div>}
+        </div>
+
+        {/* Pagination */}
+        {totalPages > 1 && (
+          <div className="flex items-center justify-between border-t border-white/8 px-4 py-3">
+            <button disabled={page <= 1} onClick={() => setPage(p => p-1)}
+              className="flex items-center gap-1 rounded-lg border border-white/8 px-3 py-1.5 text-xs text-slate-400 disabled:opacity-40 hover:border-emerald-400/30 hover:text-emerald-300 transition">
+              <ChevronLeft size={14}/> Previous
+            </button>
+            <span className="text-xs text-slate-500">Page {page} of {totalPages}</span>
+            <button disabled={page >= totalPages} onClick={() => setPage(p => p+1)}
+              className="flex items-center gap-1 rounded-lg border border-white/8 px-3 py-1.5 text-xs text-slate-400 disabled:opacity-40 hover:border-emerald-400/30 hover:text-emerald-300 transition">
+              Next <ChevronRight size={14}/>
+            </button>
+          </div>
+        )}
+      </div>
+
+      {selectedId != null && (
+        <DeviceDetailPanel deviceId={selectedId} onClose={() => setSelectedId(null)}/>
+      )}
+    </div>
+  )
+}
+
+// ────────────────────────── HELPERS ──────────────────────────
 function formatTime(value:string) { return value ? new Intl.DateTimeFormat(undefined,{dateStyle:'medium',timeStyle:'short'}).format(new Date(value)) : '—' }
 
+// ────────────────────────── APP ROOT ──────────────────────────
 export default function App() {
-  const [authenticated, setAuthenticated] = useState<boolean|null>(null), [data, setData] = useState(emptyDashboard), [view, setView] = useState<View>('overview'), [loading, setLoading] = useState(false), [error, setError] = useState(''), [query, setQuery] = useState('')
-  const load = useCallback(async () => { setLoading(true); try { setData(await dashboardApi.dashboard()); setError('') } catch (err) { if (err instanceof ApiError && err.status===401) setAuthenticated(false); else setError('Telemetry service is temporarily unavailable.') } finally { setLoading(false) } }, [])
+  const [authenticated, setAuthenticated] = useState<boolean|null>(null)
+  const [data, setData] = useState(emptyDashboard)
+  const [view, setView] = useState<View>('overview')
+  const [loading, setLoading] = useState(false)
+  const [error, setError] = useState('')
+  const [query, setQuery] = useState('')
+
+  const load = useCallback(async () => {
+    setLoading(true)
+    try { setData(await dashboardApi.dashboard()); setError('') }
+    catch (err) { if (err instanceof ApiError && err.status===401) setAuthenticated(false); else setError('Telemetry service is temporarily unavailable.') }
+    finally { setLoading(false) }
+  }, [])
+
   useEffect(()=>{ dashboardApi.session().then(()=>setAuthenticated(true)).catch(()=>setAuthenticated(false)) },[])
   useEffect(()=>{ if(!authenticated)return; const first=window.setTimeout(load,0); const id=window.setInterval(load,15000); return()=>{ window.clearTimeout(first); window.clearInterval(id) } },[authenticated,load])
+
   if(authenticated===null) return <div className="grid min-h-screen place-items-center bg-[#07100f] text-emerald-300"><RefreshCw className="animate-spin"/></div>
   if(!authenticated) return <Login onAuthenticated={()=>setAuthenticated(true)}/>
+
   const devices = data.devices.filter(device => `${device.hostname} ${device.ipAddress} ${device.type}`.toLowerCase().includes(query.toLowerCase()))
-  const nav: {id:View,label:string,icon:React.ReactNode,count?:number}[] = [{id:'overview',label:'Operations',icon:<LayoutDashboard size={18}/>},{id:'topology',label:'Network topology',icon:<Network size={18}/>,count:data.topology.length},{id:'devices',label:'Infrastructure',icon:<Boxes size={18} />,count:data.overview.monitored},{id:'alerts',label:'Active alerts',icon:<AlertTriangle size={18}/>,count:data.overview.openAlerts}]
-  return <div className="min-h-screen bg-[#07100f] text-slate-300"><aside className="fixed inset-y-0 left-0 z-20 hidden w-64 border-r border-white/7 bg-[#091312] lg:block"><div className="flex h-20 items-center gap-3 border-b border-white/7 px-6"><div className="grid size-9 place-items-center rounded-lg bg-emerald-400 text-[#07100f]"><Radio size={20}/></div><div><p className="text-sm font-bold tracking-wide text-white">NETPULSE</p><p className="text-[10px] uppercase tracking-[.2em] text-emerald-400">Command center</p></div></div><nav className="p-4"><p className="px-3 py-3 text-[10px] font-bold uppercase tracking-[.2em] text-slate-600">Monitor</p>{nav.map(item=><button key={item.id} onClick={()=>setView(item.id)} className={`mb-1 flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-sm transition ${view===item.id?'bg-emerald-400/10 text-emerald-300':'text-slate-500 hover:bg-white/[.035] hover:text-slate-300'}`}>{item.icon}<span className="flex-1 text-left">{item.label}</span>{item.count!=null&&<span className="rounded bg-black/20 px-1.5 py-0.5 text-[10px]">{item.count}</span>}</button>)}</nav><div className="absolute bottom-0 w-full border-t border-white/7 p-4"><div className="mb-3 flex items-center gap-3 rounded-lg bg-white/[.025] p-3"><div className="grid size-8 place-items-center rounded-full bg-emerald-400/10 text-emerald-300"><ShieldCheck size={16}/></div><div><p className="text-xs font-medium text-slate-300">Administrator</p><p className="text-[10px] text-emerald-400">Secure session</p></div></div><button onClick={async()=>{await dashboardApi.logout();setAuthenticated(false)}} className="flex w-full items-center gap-2 px-3 py-2 text-xs text-slate-500 hover:text-rose-300"><LogOut size={15}/>Terminate session</button></div></aside><div className="lg:pl-64"><header className="sticky top-0 z-10 flex h-20 items-center gap-4 border-b border-white/7 bg-[#07100f]/90 px-5 backdrop-blur-xl sm:px-8"><div className="lg:hidden"><Radio className="text-emerald-400"/></div><div className="relative max-w-md flex-1"><Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-600" size={16}/><input value={query} onChange={e=>setQuery(e.target.value)} placeholder="Search assets or addresses" className="w-full rounded-lg border border-white/8 bg-white/[.025] py-2.5 pl-10 pr-3 text-sm outline-none focus:border-emerald-400/40"/></div><button onClick={load} aria-label="Refresh dashboard" className="grid size-9 place-items-center rounded-lg border border-white/8 text-slate-500 hover:text-emerald-300"><RefreshCw className={loading?'animate-spin':''} size={16}/></button><div className="hidden items-center gap-2 text-xs text-slate-500 sm:flex"><span className="size-2 rounded-full bg-emerald-400 shadow-[0_0_8px_#34d399]"/>Pipeline connected</div></header><main className="mx-auto max-w-[1500px] p-5 sm:p-8"><div className="mb-7 flex flex-wrap items-end justify-between gap-3"><div><p className="mb-2 flex items-center gap-2 text-xs font-semibold uppercase tracking-[.18em] text-emerald-400"><Activity size={13}/>Live telemetry</p><h1 className="text-2xl font-semibold tracking-tight text-white">{nav.find(item=>item.id===view)?.label}</h1></div><p className="text-xs text-slate-600">Last synchronized {formatTime(data.generatedAt)}</p></div>{error&&<div role="alert" className="mb-4 flex items-center gap-2 rounded-lg border border-amber-400/20 bg-amber-400/8 p-3 text-sm text-amber-200"><AlertTriangle size={16}/>{error}</div>}{view==='overview'&&<Overview data={data}/>} {view==='topology'&&<TopologyMap data={data}/>} {view==='devices'&&<DeviceTable devices={devices}/>} {view==='alerts'&&<Alerts events={data.events}/>}</main></div></div>
+
+  const nav: {id:View,label:string,icon:React.ReactNode,count?:number}[] = [
+    {id:'overview',label:'Operations',icon:<LayoutDashboard size={18}/>},
+    {id:'topology',label:'Network topology',icon:<Network size={18}/>,count:data.topology.length},
+    {id:'devices',label:'Infrastructure',icon:<Boxes size={18} />,count:data.overview.monitored},
+    {id:'inventory',label:'Fleet inventory',icon:<Server size={18}/>,count:data.overview.monitored},
+    {id:'alerts',label:'Active alerts',icon:<AlertTriangle size={18}/>,count:data.overview.openAlerts},
+  ]
+
+  return (
+    <div className="min-h-screen bg-[#07100f] text-slate-300">
+      {/* Sidebar */}
+      <aside className="fixed inset-y-0 left-0 z-20 hidden w-64 border-r border-white/7 bg-[#091312] lg:block">
+        <div className="flex h-20 items-center gap-3 border-b border-white/7 px-6">
+          <div className="grid size-9 place-items-center rounded-lg bg-emerald-400 text-[#07100f]"><Radio size={20}/></div>
+          <div><p className="text-sm font-bold tracking-wide text-white">NETPULSE</p><p className="text-[10px] uppercase tracking-[.2em] text-emerald-400">Command center</p></div>
+        </div>
+        <nav className="p-4">
+          <p className="px-3 py-3 text-[10px] font-bold uppercase tracking-[.2em] text-slate-600">Monitor</p>
+          {nav.map(item=>(
+            <button key={item.id} onClick={()=>setView(item.id)}
+              className={`mb-1 flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-sm transition ${view===item.id?'bg-emerald-400/10 text-emerald-300':'text-slate-500 hover:bg-white/[.035] hover:text-slate-300'}`}>
+              {item.icon}<span className="flex-1 text-left">{item.label}</span>
+              {item.count!=null&&<span className="rounded bg-black/20 px-1.5 py-0.5 text-[10px]">{item.count}</span>}
+            </button>
+          ))}
+          {/* Alarm matrix badge */}
+          <div className="mt-4 rounded-xl border border-amber-400/20 bg-amber-400/5 p-3">
+            <div className="flex items-center gap-2 text-xs font-semibold text-amber-300"><Zap size={13}/>Alarm rules active</div>
+            <p className="mt-1.5 text-[10px] leading-relaxed text-slate-500">6 strategies: device-down, link-state, admin/oper mismatch, high CPU, high memory, SNMP failure</p>
+          </div>
+        </nav>
+        <div className="absolute bottom-0 w-full border-t border-white/7 p-4">
+          <div className="mb-3 flex items-center gap-3 rounded-lg bg-white/[.025] p-3">
+            <div className="grid size-8 place-items-center rounded-full bg-emerald-400/10 text-emerald-300"><ShieldCheck size={16}/></div>
+            <div><p className="text-xs font-medium text-slate-300">Administrator</p><p className="text-[10px] text-emerald-400">Secure session</p></div>
+          </div>
+          <button onClick={async()=>{await dashboardApi.logout();setAuthenticated(false)}} className="flex w-full items-center gap-2 px-3 py-2 text-xs text-slate-500 hover:text-rose-300"><LogOut size={15}/>Terminate session</button>
+        </div>
+      </aside>
+
+      {/* Main content */}
+      <div className="lg:pl-64">
+        <header className="sticky top-0 z-10 flex h-20 items-center gap-4 border-b border-white/7 bg-[#07100f]/90 px-5 backdrop-blur-xl sm:px-8">
+          <div className="lg:hidden"><Radio className="text-emerald-400"/></div>
+          <div className="relative max-w-md flex-1">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-600" size={16}/>
+            <input value={query} onChange={e=>setQuery(e.target.value)} placeholder="Search assets or addresses"
+              className="w-full rounded-lg border border-white/8 bg-white/[.025] py-2.5 pl-10 pr-3 text-sm outline-none focus:border-emerald-400/40"/>
+          </div>
+          <button onClick={load} aria-label="Refresh dashboard" className="grid size-9 place-items-center rounded-lg border border-white/8 text-slate-500 hover:text-emerald-300">
+            <RefreshCw className={loading?'animate-spin':''} size={16}/>
+          </button>
+          <div className="hidden items-center gap-2 text-xs text-slate-500 sm:flex">
+            <span className="size-2 rounded-full bg-emerald-400 shadow-[0_0_8px_#34d399]"/>Pipeline connected
+          </div>
+        </header>
+
+        <main className="mx-auto max-w-[1500px] p-5 sm:p-8">
+          <div className="mb-7 flex flex-wrap items-end justify-between gap-3">
+            <div>
+              <p className="mb-2 flex items-center gap-2 text-xs font-semibold uppercase tracking-[.18em] text-emerald-400"><Activity size={13}/>Live telemetry</p>
+              <h1 className="text-2xl font-semibold tracking-tight text-white">{nav.find(item=>item.id===view)?.label}</h1>
+            </div>
+            <p className="text-xs text-slate-600">Last synchronized {formatTime(data.generatedAt)}</p>
+          </div>
+          {error&&<div role="alert" className="mb-4 flex items-center gap-2 rounded-lg border border-amber-400/20 bg-amber-400/8 p-3 text-sm text-amber-200"><AlertTriangle size={16}/>{error}</div>}
+          {view==='overview'&&<Overview data={data}/>}
+          {view==='topology'&&<TopologyMap data={data}/>}
+          {view==='devices'&&<DeviceTable devices={devices}/>}
+          {view==='inventory'&&<InventoryView/>}
+          {view==='alerts'&&<Alerts events={data.events}/>}
+        </main>
+      </div>
+    </div>
+  )
 }
