@@ -33,6 +33,11 @@ The default bind address is `127.0.0.1`. Keep it that way for local operation.
 For network access, place the application behind an approved TLS and identity
 gateway before changing `NMS_BIND_ADDRESS`.
 
+Review [the data boundary and outbound traffic](data-boundary.md) before
+deployment. NMS stores operational data locally and disables its identified
+optional phone-home features, while still sending SNMP and ICMP to configured
+devices. Enforce device-only egress with customer firewall rules.
+
 ## Start the complete stack
 
 From the repository root:
@@ -41,6 +46,16 @@ From the repository root:
 docker compose up --build -d
 docker compose ps
 ```
+
+After changing UI or API source, rebuild and replace the running containers with:
+
+```bash
+docker compose up -d --build --force-recreate nms-ui nms-middleware
+```
+
+`docker compose build` alone only creates updated images; it does not replace
+containers already serving the old images. This command preserves the database
+volume and historical metrics.
 
 Wait until TimescaleDB is healthy and the remaining services show as running.
 The initial image build can take several minutes.
@@ -96,6 +111,21 @@ docker compose exec timescaledb psql -U postgres -d nms_db -c \
 
 The command center refreshes every 15 seconds. Allow at least one polling cycle
 after all containers have started.
+
+The topology collector walks the standard LLDP-MIB remote systems table for the
+SNMP targets configured in `telegraf.conf`. Devices must have LLDP enabled and
+the configured SNMP credentials must be allowed to read LLDP-MIB. The bundled
+mock `snmpd` agents do not implement LLDP, so an empty topology in the mock lab
+is expected; the application does not invent neighbor links. Newly enrolled
+devices must also be added to Telegraf's SNMP target configuration until
+inventory-driven polling profiles are implemented.
+
+The Fleet inventory page supports adding, editing, and deleting devices. New
+devices must use a model in the middleware's supported hardware catalog.
+SNMPv2c community values are write-only in the UI: an existing value is never
+returned to the browser, and leaving the edit field blank preserves it. The
+credential-profile workflow and connectivity preflight described in
+`product-future-scope.md` are not implemented yet.
 
 ## Optional demonstration data
 

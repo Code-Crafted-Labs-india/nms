@@ -7,7 +7,7 @@ services:
       - POSTGRES_PASSWORD=${DB_PASSWORD:?Set DB_PASSWORD to a unique random value}
       - POSTGRES_DB=nms_db
     networks:
-      - nms_net
+      - data_net
     volumes:
       - nms_db_data:/var/lib/postgresql/data
       - ./migration.sql:/docker-entrypoint-initdb.d/001-nms-schema.sql:ro
@@ -26,6 +26,7 @@ services:
         condition: service_healthy
     networks:
       - nms_net
+      - data_net
     environment:
       - DB_PASSWORD=${DB_PASSWORD:?Set DB_PASSWORD to a unique random value}
     volumes:
@@ -57,6 +58,8 @@ services:
         condition: service_healthy
     networks:
       - nms_net
+      - data_net
+      - app_net
     stop_grace_period: 15s
     restart: unless-stopped
 
@@ -69,7 +72,7 @@ services:
     depends_on:
       - nms-middleware
     networks:
-      - nms_net
+      - app_net
     read_only: true
     tmpfs:
       - /tmp:size=16m,noexec,nosuid,nodev
@@ -89,10 +92,12 @@ services:
       - NET_ADMIN
     environment:
       - DEVICE_TYPE=switch
+      - DEVICE_MODEL=NCS 540-24Z8Q2C-SYS
+      - DEVICE_OBJECT_ID=1.3.6.1.4.1.9.1.2981
       - BASE_CPU_IDLE=87      # access switch, mostly idle
       - MEM_TOTAL_KB=4194304  # 4 GB
       - MEM_USED_PCT=22
-      - PEER_IPS=192.168.10.30                          # uplink to core only
+      - PEER_IPS=192.168.10.30
       - PING_INTERVAL=0.15
       - PING_SIZE=768
     networks:
@@ -109,10 +114,12 @@ services:
       - NET_ADMIN
     environment:
       - DEVICE_TYPE=switch
+      - DEVICE_MODEL=NCS 540-24Z8Q2C-SYS
+      - DEVICE_OBJECT_ID=1.3.6.1.4.1.9.1.2981
       - BASE_CPU_IDLE=75      # busier access switch
       - MEM_TOTAL_KB=4194304  # 4 GB
       - MEM_USED_PCT=38
-      - PEER_IPS=192.168.10.30                          # uplink to core
+      - PEER_IPS=192.168.10.30
       - PING_INTERVAL=0.1
       - PING_SIZE=1024
     networks:
@@ -129,6 +136,8 @@ services:
       - NET_ADMIN
     environment:
       - DEVICE_TYPE=router
+      - DEVICE_MODEL=NCS 540X-16Z4G8Q2C-A
+      - DEVICE_OBJECT_ID=1.3.6.1.4.1.9.1.2983
       - BASE_CPU_IDLE=63      # WAN router, moderate load
       - MEM_TOTAL_KB=8388608  # 8 GB
       - MEM_USED_PCT=48
@@ -149,6 +158,8 @@ services:
       - NET_ADMIN
     environment:
       - DEVICE_TYPE=router
+      - DEVICE_MODEL=NCS 540X-16Z4G8Q2C-A
+      - DEVICE_OBJECT_ID=1.3.6.1.4.1.9.1.2983
       - BASE_CPU_IDLE=52      # second WAN router, heavier load
       - MEM_TOTAL_KB=8388608  # 8 GB
       - MEM_USED_PCT=62
@@ -169,11 +180,13 @@ services:
       - NET_ADMIN
     environment:
       - DEVICE_TYPE=core
+      - DEVICE_MODEL=NCS 540X-16Z4G8Q2C-A
+      - DEVICE_OBJECT_ID=1.3.6.1.4.1.9.1.2983
       - BASE_CPU_IDLE=42      # core router, high sustained load
       - MEM_TOTAL_KB=16777216 # 16 GB
       - MEM_USED_PCT=58
       - PEER_IPS=192.168.10.10 192.168.10.11 192.168.10.19 192.168.10.20
-      - PING_INTERVAL=0.02    # 50 pps ≈ 1.1 Mbps per peer
+      - PING_INTERVAL=0.02
       - PING_SIZE=1400
     networks:
       nms_net:
@@ -190,8 +203,10 @@ services:
       - NET_ADMIN
     environment:
       - DEVICE_TYPE=core
-      - BASE_CPU_IDLE=55      # secondary core, lighter steady-state
-      - MEM_TOTAL_KB=16777216 # 16 GB
+      - DEVICE_MODEL=NCS 540X-16Z4G8Q2C-A
+      - DEVICE_OBJECT_ID=1.3.6.1.4.1.9.1.2983
+      - BASE_CPU_IDLE=55
+      - MEM_TOTAL_KB=16777216
       - MEM_USED_PCT=44
       - PEER_IPS=192.168.10.30 192.168.10.12 192.168.10.13 192.168.10.21
       - PING_INTERVAL=0.03
@@ -211,8 +226,10 @@ services:
       - NET_ADMIN
     environment:
       - DEVICE_TYPE=switch
-      - BASE_CPU_IDLE=68      # distribution switch, moderate
-      - MEM_TOTAL_KB=8388608  # 8 GB
+      - DEVICE_MODEL=NCS 540-24Z8Q2C-SYS
+      - DEVICE_OBJECT_ID=1.3.6.1.4.1.9.1.2981
+      - BASE_CPU_IDLE=68
+      - MEM_TOTAL_KB=8388608
       - MEM_USED_PCT=31
       - PEER_IPS=192.168.10.30 192.168.10.31 192.168.10.12 192.168.10.13
       - PING_INTERVAL=0.08
@@ -232,8 +249,10 @@ services:
       - NET_ADMIN
     environment:
       - DEVICE_TYPE=switch
-      - BASE_CPU_IDLE=82      # mostly idle access switch
-      - MEM_TOTAL_KB=4194304  # 4 GB
+      - DEVICE_MODEL=NCS 540-24Z8Q2C-SYS
+      - DEVICE_OBJECT_ID=1.3.6.1.4.1.9.1.2981
+      - BASE_CPU_IDLE=82
+      - MEM_TOTAL_KB=4194304
       - MEM_USED_PCT=19
       - PEER_IPS=192.168.10.40
       - PING_INTERVAL=0.2
@@ -252,8 +271,10 @@ services:
       - NET_ADMIN
     environment:
       - DEVICE_TYPE=switch
-      - BASE_CPU_IDLE=79      # normal access switch
-      - MEM_TOTAL_KB=4194304  # 4 GB
+      - DEVICE_MODEL=NCS 540-24Z8Q2C-SYS
+      - DEVICE_OBJECT_ID=1.3.6.1.4.1.9.1.2981
+      - BASE_CPU_IDLE=79
+      - MEM_TOTAL_KB=4194304
       - MEM_USED_PCT=27
       - PEER_IPS=192.168.10.40
       - PING_INTERVAL=0.18
@@ -273,9 +294,11 @@ services:
       - NET_ADMIN
     environment:
       - DEVICE_TYPE=switch
-      - BASE_CPU_IDLE=8       # ~92% CPU → fires HighCPUUtilizationStrategy
-      - MEM_TOTAL_KB=4194304  # 4 GB
-      - MEM_USED_PCT=92       # ~92% used → fires HighMemoryUtilizationStrategy
+      - DEVICE_MODEL=NCS 540-24Z8Q2C-SYS
+      - DEVICE_OBJECT_ID=1.3.6.1.4.1.9.1.2981
+      - BASE_CPU_IDLE=8
+      - MEM_TOTAL_KB=4194304
+      - MEM_USED_PCT=92
       - PEER_IPS=192.168.10.30 192.168.10.31
       - PING_INTERVAL=0.12
       - PING_SIZE=768
@@ -294,8 +317,10 @@ services:
       - NET_ADMIN
     environment:
       - DEVICE_TYPE=router
-      - BASE_CPU_IDLE=45      # WAN edge under sustained load
-      - MEM_TOTAL_KB=8388608  # 8 GB
+      - DEVICE_MODEL=NCS 540X-16Z4G8Q2C-A
+      - DEVICE_OBJECT_ID=1.3.6.1.4.1.9.1.2983
+      - BASE_CPU_IDLE=45
+      - MEM_TOTAL_KB=8388608
       - MEM_USED_PCT=55
       - PEER_IPS=192.168.10.19 192.168.10.20 192.168.10.30
       - PING_INTERVAL=0.06
@@ -314,9 +339,11 @@ services:
     cap_add:
       - NET_ADMIN
     environment:
-      - DEVICE_TYPE=router    # firewall is router-class for interface count
-      - BASE_CPU_IDLE=60      # primary firewall
-      - MEM_TOTAL_KB=8388608  # 8 GB
+      - DEVICE_TYPE=router
+      - DEVICE_MODEL=NCS 540X-16Z4G8Q2C-A
+      - DEVICE_OBJECT_ID=1.3.6.1.4.1.9.1.2983
+      - BASE_CPU_IDLE=60
+      - MEM_TOTAL_KB=8388608
       - MEM_USED_PCT=42
       - PEER_IPS=192.168.10.21 192.168.10.30
       - PING_INTERVAL=0.1
@@ -334,9 +361,11 @@ services:
     cap_add:
       - NET_ADMIN
     environment:
-      - DEVICE_TYPE=router    # secondary/HA firewall
-      - BASE_CPU_IDLE=65      # HA standby, lower load
-      - MEM_TOTAL_KB=8388608  # 8 GB
+      - DEVICE_TYPE=router
+      - DEVICE_MODEL=NCS 540X-16Z4G8Q2C-A
+      - DEVICE_OBJECT_ID=1.3.6.1.4.1.9.1.2983
+      - BASE_CPU_IDLE=65
+      - MEM_TOTAL_KB=8388608
       - MEM_USED_PCT=38
       - PEER_IPS=192.168.10.50 192.168.10.30
       - PING_INTERVAL=0.1
@@ -356,8 +385,10 @@ services:
       - NET_ADMIN
     environment:
       - DEVICE_TYPE=switch
-      - BASE_CPU_IDLE=91      # OOB mgmt switch, very quiet
-      - MEM_TOTAL_KB=2097152  # 2 GB
+      - DEVICE_MODEL=NCS 540
+      - DEVICE_OBJECT_ID=1.3.6.1.4.1.9.1.3009
+      - BASE_CPU_IDLE=91
+      - MEM_TOTAL_KB=2097152
       - MEM_USED_PCT=12
       - PEER_IPS=192.168.10.30
       - PING_INTERVAL=0.5
@@ -380,15 +411,22 @@ services:
     environment:
       - GF_SECURITY_ADMIN_PASSWORD=${GRAFANA_ADMIN_PASSWORD:?Set GRAFANA_ADMIN_PASSWORD to a unique random value}
       - DB_PASS=${DB_PASSWORD:?Set DB_PASSWORD to a unique random value}
-      - GF_PLUGINS_ALLOW_LOADING_UNSIGNED_PLUGINS=volkovlabs-form-panel
-    # Hard-force installation through the CLI boot vector before launching Grafana
-    entrypoint: >
-      sh -c "grafana cli plugins install volkovlabs-form-panel && exec /run.sh"
+      # Disable Grafana's optional external reporting, update checks, and feeds.
+      - GF_ANALYTICS_REPORTING_ENABLED=false
+      - GF_ANALYTICS_CHECK_FOR_UPDATES=false
+      - GF_ANALYTICS_CHECK_FOR_PLUGIN_UPDATES=false
+      - GF_SECURITY_DISABLE_GRAVATAR=true
+      - GF_NEWS_NEWS_FEED_ENABLED=false
+      - GF_USERS_ALLOW_SIGN_UP=false
+      - GF_AUTH_ANONYMOUS_ENABLED=false
+      - GF_DASHBOARDS_PUBLIC_DASHBOARDS_ENABLED=false
+      - GF_PLUGINS_PLUGIN_ADMIN_ENABLED=false
+      - GF_PLUGINS_PREINSTALL_DISABLED=true
     volumes:
       - grafana_storage:/var/lib/grafana
       - ./grafana/provisioning:/etc/grafana/provisioning:ro
     networks:
-      - nms_net
+      - data_net
     restart: unless-stopped
 
 networks:
@@ -396,6 +434,12 @@ networks:
     ipam:
       config:
         - subnet: 192.168.10.0/24
+  # Only the collector and middleware need to query the database. Keep the DB
+  # on an internal network, away from direct host and device-facing egress.
+  data_net:
+    internal: true
+  # Separate the host-published UI from the device-facing monitoring network.
+  app_net:
 
 volumes:
   grafana_storage:

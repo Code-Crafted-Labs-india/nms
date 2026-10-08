@@ -3,8 +3,10 @@
 ## Objective
 
 Prepare the NMS stack for confidential production data and operation in an
-isolated or air-gapped network. The current deployment is suitable for local
-development and demonstrations, but it is not yet an isolation boundary.
+isolated or air-gapped network. The application disables its identified
+optional phone-home features, but the Compose bridge still permits egress from
+services that must reach monitored devices. See [Data boundary](data-boundary.md)
+for the current traffic model and the host controls required for production.
 
 ## Priority 1: Network exposure and access control
 
@@ -13,8 +15,11 @@ development and demonstrations, but it is not yet an isolation boundary.
 - Remove the public middleware `8080` binding unless it is operationally
   required. If it is required, add authentication and authorization.
 - Replace the middleware's wildcard CORS policy with the exact Grafana origin.
-- Deny container egress by default and allow only explicitly approved internal
-  destinations such as TimescaleDB, SMTP, and alert receivers.
+- Enforce host or network firewall egress rules. Permit only the configured
+  monitored-device addresses and protocols from Telegraf and the middleware;
+  their device-facing Compose bridge is not an egress firewall. Also deny
+  external egress from the UI bridge. The database and Grafana are on an
+  internal Docker network.
 - Put Grafana behind an HTTPS reverse proxy for any non-local access.
 
 ## Priority 2: Credentials and sessions
@@ -28,13 +33,12 @@ development and demonstrations, but it is not yet an isolation boundary.
 
 ## Priority 3: Outbound requests and telemetry
 
-- Disable anonymous usage reporting.
-- Disable Grafana and plugin update checks.
-- Disable Gravatar, news feeds, public dashboards, and external snapshots.
-- Disable plugin administration from the web UI.
-- Preinstall required plugins in the image and remove plugin downloads from the
-  runtime entrypoint.
-- Verify isolation with firewall logs or packet capture during a soak test.
+- App UI assets and API calls are same-origin; Grafana reporting, update checks,
+  Gravatar, news feeds, public dashboards, plugin administration, suggested
+  plugin preinstallation, and runtime plugin installation are disabled in the
+  current Compose configuration.
+- Verify the effective egress boundary with firewall logs or packet capture
+  during a soak test after deploying the customer-specific firewall rules.
 
 ## Priority 4: Supply-chain and least privilege
 
@@ -55,4 +59,3 @@ development and demonstrations, but it is not yet an isolation boundary.
 - Images and plugins are reproducible from pinned, reviewed artifacts.
 - Backup and restore tests cover Grafana metadata, TimescaleDB, and provisioned
   dashboard source files.
-

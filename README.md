@@ -197,6 +197,11 @@ The system components actively capture raw metrics that formulate the functional
 For complete setup, development, verification, shutdown, and troubleshooting
 instructions, see [`docs/running.md`](docs/running.md).
 
+For a real-device pilot and production-readiness checklist, see the
+[`real-world deployment guide`](docs/real-world-deployment.md). The checked-in
+Compose and Telegraf configurations are for the simulated demo environment and
+must be adapted and security-reviewed before polling real equipment.
+
 The prioritized operator-product roadmap derived from the supplied NMS
 references is documented in
 [`docs/product-future-scope.md`](docs/product-future-scope.md).
@@ -227,8 +232,7 @@ approved TLS in front of the UI and complete the controls in
 Spin up the coordinated core pipeline infrastructure stack using Docker Compose:
 
 ```bash
-# Erase old volumes and bring up all containers in a clean detached state
-docker compose down -v
+# Bring up the stack without deleting the database volume or historical metrics
 docker compose up --build -d
 ```
 

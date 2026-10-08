@@ -13,6 +13,11 @@ export type InventoryDevice = {
   upInterfaces: number; downInterfaces: number
 }
 export type InventoryResponse = { devices: InventoryDevice[]; total: number; page: number; pageSize: number; totalPages: number }
+export type DeviceModel = { series: string; modelName: string }
+export type DevicePayload = {
+  hostname: string; ip_address: string; device_type: string; location: string
+  snmp_community: string; snmp_version: string; is_monitored: boolean
+}
 
 export type DeviceAlarm = {
   id: number; time: string; severity: string; eventType: string; message: string
@@ -35,12 +40,16 @@ export type DeviceDetail = {
 
 export class ApiError extends Error {
   status: number
-  constructor(status:number) { super(`API request failed: ${status}`); this.status = status }
+  constructor(status:number, message?:string) { super(message || `API request failed: ${status}`); this.status = status }
 }
 let csrfToken = ''
 async function request<T>(path:string, init:RequestInit={}) {
   const response = await fetch(path, { credentials:'same-origin', cache:'no-store', ...init, headers:{ ...(init.body?{'Content-Type':'application/json'}:{}), ...(csrfToken?{'X-CSRF-Token':csrfToken}:{}), ...init.headers } })
-  if(!response.ok) throw new ApiError(response.status)
+  if(!response.ok) {
+    let message = ''
+    try { message = (await response.json() as {error?:string}).error ?? '' } catch { /* Keep the status fallback. */ }
+    throw new ApiError(response.status, message)
+  }
   if(response.status===204) return undefined as T
   return response.json() as Promise<T>
 }
@@ -53,6 +62,10 @@ export const dashboardApi = {
     const qs = new URLSearchParams(Object.entries(params).map(([k,v])=>[k,String(v)])).toString()
     return request<InventoryResponse>(`/api/v1/devices${qs ? '?'+qs : ''}`)
   },
+  deviceModels() { return request<DeviceModel[]>('/api/v1/device-models') },
+  createDevice(payload: DevicePayload) { return request<void>('/api/devices', { method:'POST', body:JSON.stringify(payload) }) },
+  updateDevice(id:number, payload:DevicePayload) { return request<void>(`/api/devices/${id}`, { method:'PUT', body:JSON.stringify(payload) }) },
+  deleteDevice(id:number) { return request<void>(`/api/devices/${id}`, { method:'DELETE' }) },
   deviceDetail(id: number) { return request<DeviceDetail>(`/api/v1/devices/${id}`) },
   resolveAlarm(id: number) { return request<void>(`/api/v1/alarms/${id}/resolve`, { method: 'POST' }) },
 }

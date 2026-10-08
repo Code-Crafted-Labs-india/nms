@@ -38,7 +38,7 @@ done
 echo "[mock-${DEVICE_TYPE}] added ${IFACE_COUNT} virtual interfaces"
 
 # ── 3. Start snmpd with per-device env exported for pass_persist ──────────────
-export BASE_CPU_IDLE MEM_TOTAL_KB MEM_USED_PCT
+export BASE_CPU_IDLE MEM_TOTAL_KB MEM_USED_PCT DEVICE_MODEL DEVICE_OBJECT_ID
 snmpd -f -Lo -c /etc/snmp/snmpd.conf 0.0.0.0:161 &
 SNMPD_PID=$!
 echo "[mock-${DEVICE_TYPE}] snmpd started (cpu_idle_base=${BASE_CPU_IDLE}%, mem=${MEM_TOTAL_KB}KB, used=${MEM_USED_PCT}%)"

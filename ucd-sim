@@ -15,6 +15,10 @@ import sys, os, math, random, time
 BASE_CPU_IDLE = float(os.environ.get('BASE_CPU_IDLE', '70'))
 MEM_TOTAL_KB  = int(os.environ.get('MEM_TOTAL_KB',  '8388608'))
 MEM_USED_PCT  = float(os.environ.get('MEM_USED_PCT', '40'))
+# Cisco NCS 540 sysObjectID OID value (default: Base NCS 540 = 1.3.6.1.4.1.9.1.3009)
+DEVICE_OBJECT_ID = os.environ.get('DEVICE_OBJECT_ID', '1.3.6.1.4.1.9.1.3009')
+# Human-readable model name exposed via sysDescr
+DEVICE_MODEL = os.environ.get('DEVICE_MODEL', 'Cisco NCS 540')
 
 _t0 = time.monotonic()
 
@@ -42,6 +46,11 @@ def mem_avail_val():
 
 # Ordered OID table (ascending order is required for correct getnext walking)
 OIDS = [
+    # sysObjectID — identifies this device as a specific Cisco NCS 540 variant
+    ('.1.3.6.1.2.1.1.2.0',          'OID',     lambda: DEVICE_OBJECT_ID),
+    # sysDescr — human-readable model string
+    ('.1.3.6.1.2.1.1.1.0',          'STRING',  lambda: f'Cisco IOS XR Software, NCS-540 Series ({DEVICE_MODEL})'),
+    # UCD memory / CPU subtree
     ('.1.3.6.1.4.1.99999.4.5.0',    'INTEGER', lambda: str(MEM_TOTAL_KB)),
     ('.1.3.6.1.4.1.99999.4.11.0',   'INTEGER', lambda: str(mem_avail_val())),
     ('.1.3.6.1.4.1.99999.10.1.3.1', 'STRING',  load_1_val),

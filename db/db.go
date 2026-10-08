@@ -118,7 +118,9 @@ var schema = []tableSpec{
 		// Live inspection confirmed: lldp_local_port_num is INTEGER (not TEXT) in production.
 		name: "snmp_lldp_topology",
 		columns: []columnSpec{
+			{name: "index", dataType: "TEXT", allowNull: true},
 			{name: "lldp_rem_sys_name", dataType: "TEXT", allowNull: true},
+			{name: "lldp_rem_chassis_id", dataType: "TEXT", allowNull: true},
 			{name: "lldp_rem_port_id", dataType: "TEXT", allowNull: true},
 			{name: "lldp_local_port_num", dataType: "INTEGER", allowNull: true},
 			{name: "agent_host", dataType: "TEXT", allowNull: true},
@@ -324,35 +326,19 @@ type deviceModel struct {
 // To register a new model, append an entry here — RunMigrations will detect it is
 // absent from the DB and insert it automatically on the next startup.
 var deviceModelCatalog = []deviceModel{
-	// ATS-2900 Series
-	{Series: "ATS-2900-SERIES", ModelName: "ATS-2900-8T"},
-	{Series: "ATS-2900-SERIES", ModelName: "ATS-2900-12T"},
-	{Series: "ATS-2900-SERIES", ModelName: "ATS-2900-24T"},
-	{Series: "ATS-2900-SERIES", ModelName: "ATS-2900-48T"},
-	{Series: "ATS-2900-SERIES", ModelName: "ATS-2900-24T2X"},
-	{Series: "ATS-2900-SERIES", ModelName: "ATS-2900-48T4X"},
+	// Cisco NCS 540 Series — sysObjectID: 1.3.6.1.4.1.9.1.3009
+	{Series: "NCS-540", ModelName: "NCS 540"},
 
-	// ATS-3900 Series
-	// NOTE: ATS-2900-12T2X appears to be misclassified under ATS-3900-SERIES
-	// in the original catalog — flagged as potential data entry error.
-	{Series: "ATS-3900-SERIES", ModelName: "ATS-3900-24T4X"},
-	{Series: "ATS-3900-SERIES", ModelName: "ATS-3900-48T4X"},
-	{Series: "ATS-3900-SERIES", ModelName: "ATS-3900-24T4X-R"},
-	{Series: "ATS-3900-SERIES", ModelName: "ATS-3900-48T4X-R"},
-	{Series: "ATS-3900-SERIES", ModelName: "ATS-2900-12T2X",
-		DataNote: "POTENTIAL DATA ENTRY ERROR: ATS-2900-12T2X is cataloged under ATS-3900-SERIES — verify series assignment"},
+	// Cisco NCS 540-24Z8Q2C-SYS — sysObjectID: 1.3.6.1.4.1.9.1.2981
+	{Series: "NCS-540", ModelName: "NCS 540-24Z8Q2C-SYS"},
 
-	// ATS-5800 Series
-	{Series: "ATS-5800-SERIES", ModelName: "ATS-5800-32Q"},
-	{Series: "ATS-5800-SERIES", ModelName: "ATS-5800-64Q"},
-	{Series: "ATS-5800-SERIES", ModelName: "ATS-5800-32Q-R"},
-	{Series: "ATS-5800-SERIES", ModelName: "ATS-5800-64Q-R"},
+	// Cisco NCS 540X-16Z4G8Q2C-A — sysObjectID: 1.3.6.1.4.1.9.1.2983
+	{Series: "NCS-540", ModelName: "NCS 540X-16Z4G8Q2C-A"},
 
-	// ATMIS Series
-	{Series: "ATMIS-SERIES", ModelName: "ATMIS-1G"},
-	{Series: "ATMIS-SERIES", ModelName: "ATMIS-10G"},
-	{Series: "ATMIS-SERIES", ModelName: "ATMIS-25G"},
-	{Series: "ATMIS-SERIES", ModelName: "ATMIS-100G"},
+	// Unknown/auto-discovered placeholder — used by the auto-discovery engine
+	// when a device is detected on the network but not yet classified.
+	// This entry keeps the catalog gate from rejecting auto-discovered rows.
+	{Series: "UNCLASSIFIED", ModelName: "unknown_discovered"},
 }
 
 // seedDeviceModels performs a modular, idempotent upsert of all entries in

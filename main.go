@@ -106,6 +106,7 @@ func main() {
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusNoContent) })
 	mux.Handle("/api/session", handlers.RequestLogger(http.HandlerFunc(sessions.HandleSession)))
 	mux.Handle("GET /api/v1/dashboard", sessions.Authenticate(handlers.RequestLogger(handlers.DashboardHandler(database))))
+	mux.Handle("GET /api/v1/device-models", sessions.Authenticate(handlers.RequestLogger(handlers.DeviceModelsHandler(database))))
 	mux.Handle("POST /api/devices", sessions.Authenticate(handlers.RequestLogger(handlers.AddDeviceHandler(database))))
 	mux.Handle("PUT /api/devices/{id}", sessions.Authenticate(handlers.RequestLogger(handlers.EditDeviceHandler(database))))
 	mux.Handle("DELETE /api/devices/{id}", sessions.Authenticate(handlers.RequestLogger(handlers.DeleteDeviceHandler(database))))

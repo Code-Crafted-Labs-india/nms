@@ -17,8 +17,10 @@ type DevicePayload struct {
 	Hostname      string `json:"hostname"`
 	IPAddress     string `json:"ip_address"`
 	DeviceType    string `json:"device_type"`
+	Location      string `json:"location"`
 	SnmpCommunity string `json:"snmp_community"`
 	SnmpVersion   string `json:"snmp_version"`
+	IsMonitored   *bool  `json:"is_monitored"` // nil = default true on create
 }
 
 // jsonResponse writes a consistent JSON envelope and sets Content-Type.
@@ -53,14 +55,13 @@ func PreflightHandler() http.HandlerFunc {
 	}
 }
 
-// RequestLogger wraps any HandlerFunc and logs method, path, and remote addr
-// for every inbound request. Attach this in main.go via mux.Handle(...).
+// RequestLogger wraps a handler and logs the method and API path without
+// retaining the operator's source address. Attach this in main.go via mux.Handle(...).
 func RequestLogger(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		apiLogger.Info("[API] Inbound request",
 			"method", r.Method,
 			"path", r.URL.Path,
-			"remote_addr", r.RemoteAddr,
 		)
 		next.ServeHTTP(w, r)
 	})
@@ -83,36 +84,69 @@ func AddDeviceHandler(database *db.DB) http.HandlerFunc {
 			return
 		}
 
-		if payload.Hostname == "" || payload.IPAddress == "" {
-			jsonResponse(w, http.StatusBadRequest, map[string]string{"error": "hostname and ip_address are required"})
+		if payload.Hostname == "" || payload.IPAddress == "" || payload.DeviceType == "" {
+			jsonResponse(w, http.StatusBadRequest, map[string]string{"error": "hostname, ip_address, and device_type are required"})
 			return
 		}
-
-		// Insert is gated by the device_models catalog: device_type must match a
-		// registered model_name. ON CONFLICT DO NOTHING prevents duplicate hostnames.
-		tag, err := database.Pool.Exec(r.Context(), `
-    INSERT INTO devices (hostname, ip_address, device_type, snmp_community, snmp_version, is_monitored)
-    SELECT $1::text, $2::inet, $3::text, $4::text, $5::text, true
-    WHERE EXISTS (SELECT 1 FROM device_models WHERE model_name = $3::text)
-    ON CONFLICT DO NOTHING;
-`, payload.Hostname, payload.IPAddress, payload.DeviceType, payload.SnmpCommunity, payload.SnmpVersion)
-
-		if err != nil {
-			apiLogger.Error("[API] Failed to insert device", "err", err)
-			jsonResponse(w, http.StatusInternalServerError, map[string]string{"error": "Failed to create device"})
-			return
+		if payload.SnmpCommunity == "" {
+			payload.SnmpCommunity = "public"
+		}
+		if payload.SnmpVersion == "" {
+			payload.SnmpVersion = "v2c"
+		}
+		monitored := true
+		if payload.IsMonitored != nil {
+			monitored = *payload.IsMonitored
 		}
 
-		if tag.RowsAffected() == 0 {
-			// Either a duplicate hostname, or device_type is not in the supported catalog.
-			jsonResponse(w, http.StatusConflict, map[string]string{
-				"error": "Device not created — hostname may already exist, or device_type is not in the supported device_models catalog",
+		// Verify the device_type is in the supported catalog before inserting.
+		var catalogCount int
+		err := database.Pool.QueryRow(r.Context(),
+			`SELECT COUNT(*) FROM device_models WHERE model_name = $1`, payload.DeviceType,
+		).Scan(&catalogCount)
+		if err != nil || catalogCount == 0 {
+			jsonResponse(w, http.StatusUnprocessableEntity, map[string]string{
+				"error": "device_type '" + payload.DeviceType + "' is not in the supported hardware catalog",
 			})
 			return
 		}
 
-		jsonResponse(w, http.StatusCreated, map[string]string{"status": "success", "message": "Device created successfully"})
+		_, err = database.Pool.Exec(r.Context(), `
+			INSERT INTO devices (hostname, ip_address, device_type, location, snmp_community, snmp_version, is_monitored)
+			VALUES ($1::text, $2::inet, $3::text, NULLIF($4,''), $5::text, $6::text, $7)
+		`, payload.Hostname, payload.IPAddress, payload.DeviceType, payload.Location,
+			payload.SnmpCommunity, payload.SnmpVersion, monitored)
+
+		if err != nil {
+			errStr := err.Error()
+			apiLogger.Error("[API] Failed to insert device", "err", err)
+			switch {
+			case containsAny(errStr, "devices_hostname_key", "unique constraint", "hostname"):
+				jsonResponse(w, http.StatusConflict, map[string]string{"error": "A device with that hostname already exists"})
+			case containsAny(errStr, "devices_ip_address_key", "ip_address", "inet"):
+				jsonResponse(w, http.StatusConflict, map[string]string{"error": "A device with that IP address already exists"})
+			default:
+				jsonResponse(w, http.StatusInternalServerError, map[string]string{"error": "Failed to create device"})
+			}
+			return
+		}
+
+		jsonResponse(w, http.StatusCreated, map[string]string{"status": "success", "message": "Device enrolled successfully"})
 	}
+}
+
+// containsAny returns true if s contains any of the provided substrings.
+func containsAny(s string, subs ...string) bool {
+	for _, sub := range subs {
+		if len(s) >= len(sub) {
+			for i := 0; i <= len(s)-len(sub); i++ {
+				if s[i:i+len(sub)] == sub {
+					return true
+				}
+			}
+		}
+	}
+	return false
 }
 
 func EditDeviceHandler(database *db.DB) http.HandlerFunc {
@@ -134,19 +168,40 @@ func EditDeviceHandler(database *db.DB) http.HandlerFunc {
 			return
 		}
 
+		if payload.Hostname == "" || payload.IPAddress == "" {
+			jsonResponse(w, http.StatusBadRequest, map[string]string{"error": "hostname and ip_address are required"})
+			return
+		}
+
+		monitored := true
+		if payload.IsMonitored != nil {
+			monitored = *payload.IsMonitored
+		}
+
 		tag, err := database.Pool.Exec(r.Context(), `
 			UPDATE devices
 			SET hostname       = $1,
 			    ip_address     = $2::inet,
 			    device_type    = $3,
-			    snmp_community = $4,
-			    snmp_version   = $5
-			WHERE id = $6
-		`, payload.Hostname, payload.IPAddress, payload.DeviceType, payload.SnmpCommunity, payload.SnmpVersion, id)
+			    location       = NULLIF($4, ''),
+			    snmp_community = COALESCE(NULLIF($5, ''), snmp_community),
+			    snmp_version   = $6,
+			    is_monitored   = $7
+			WHERE id = $8
+		`, payload.Hostname, payload.IPAddress, payload.DeviceType, payload.Location,
+			payload.SnmpCommunity, payload.SnmpVersion, monitored, id)
 
 		if err != nil {
+			errStr := err.Error()
 			apiLogger.Error("[API] Failed to update device", "id", id, "err", err)
-			jsonResponse(w, http.StatusInternalServerError, map[string]string{"error": "Failed to update device"})
+			switch {
+			case containsAny(errStr, "devices_hostname_key", "hostname"):
+				jsonResponse(w, http.StatusConflict, map[string]string{"error": "Hostname already in use by another device"})
+			case containsAny(errStr, "devices_ip_address_key", "ip_address"):
+				jsonResponse(w, http.StatusConflict, map[string]string{"error": "IP address already in use by another device"})
+			default:
+				jsonResponse(w, http.StatusInternalServerError, map[string]string{"error": "Failed to update device"})
+			}
 			return
 		}
 

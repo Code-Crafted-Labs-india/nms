@@ -1,18 +1,20 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import type { FormEvent } from 'react'
 import {
-  Activity, AlertTriangle, Bell, Boxes, CheckCircle, ChevronLeft, ChevronRight,
+  Activity, AlertTriangle, Bell, CheckCircle, ChevronLeft, ChevronRight,
   CircleCheck, Cpu, Filter, LayoutDashboard, LockKeyhole, LogOut,
-  MemoryStick, Network, Radio, RefreshCw, Search,
+  MemoryStick, Network, Plus, Radio, RefreshCw, Search,
   Server, ShieldCheck, Wifi, WifiOff, X, Zap,
+  Pencil, Trash2,
 } from 'lucide-react'
 import {
   ApiError, dashboardApi,
   type DashboardData, type MetricPoint,
   type InventoryDevice, type DeviceDetail, type DeviceAlarm, type DeviceInterface,
+  type DeviceModel, type DevicePayload,
 } from './api'
 
-type View = 'overview' | 'topology' | 'devices' | 'alerts' | 'inventory'
+type View = 'overview' | 'topology' | 'alerts' | 'inventory'
 const emptyDashboard: DashboardData = {
   generatedAt: '', overview: { monitored: 0, online: 0, offline: 0, openAlerts: 0 },
   devices: [], events: [], latency: [], cpu: [], memory: [], topology: [],
@@ -32,7 +34,7 @@ function Login({ onAuthenticated }: { onAuthenticated: () => void }) {
   return <main className="grid min-h-screen place-items-center bg-[#07100f] px-6 text-slate-100">
     <div className="absolute inset-0 bg-[radial-gradient(circle_at_50%_0%,rgba(36,211,164,.12),transparent_42%)]" />
     <section className="relative w-full max-w-md rounded-2xl border border-white/10 bg-[#0c1716]/95 p-8 shadow-2xl shadow-black/40">
-      <div className="mb-8 flex items-center gap-3"><div className="grid size-11 place-items-center rounded-xl border border-emerald-400/30 bg-emerald-400/10 text-emerald-300"><ShieldCheck size={23} /></div><div><p className="text-xs font-semibold uppercase tracking-[.24em] text-emerald-400">NetPulse Core</p><h1 className="text-xl font-semibold">Secure operations console</h1></div></div>
+      <div className="mb-8 flex items-center gap-3"><img src="/ccl-logo-dark.png" alt="Code Crafted Labs" className="size-12 rounded-full object-cover"/><div><p className="text-xs font-semibold uppercase tracking-[.18em] text-[#d6ff8a]">Code Crafted Labs</p><h1 className="text-xl font-semibold">NetPulse operations</h1></div></div>
       <div className="mb-6 rounded-lg border border-white/8 bg-white/[.025] p-4 text-sm leading-6 text-slate-400"><div className="mb-1 flex items-center gap-2 font-medium text-slate-200"><LockKeyhole size={15} /> Restricted system</div>Authorized personnel only. Activity is subject to monitoring and audit.</div>
       <form onSubmit={submit}><label className="mb-2 block text-xs font-semibold uppercase tracking-wider text-slate-400" htmlFor="access-token">Operator credential</label><input id="access-token" type="password" autoComplete="current-password" required minLength={32} value={token} onChange={e => setToken(e.target.value)} className="w-full rounded-lg border border-white/10 bg-black/20 px-4 py-3 text-sm outline-none transition focus:border-emerald-400/60 focus:ring-2 focus:ring-emerald-400/10" />{error && <p role="alert" className="mt-3 text-sm text-rose-300">{error}</p>}<button disabled={busy} className="mt-5 flex w-full items-center justify-center gap-2 rounded-lg bg-emerald-400 px-4 py-3 text-sm font-bold text-[#06100e] transition hover:bg-emerald-300 disabled:opacity-50">{busy ? <RefreshCw className="animate-spin" size={16} /> : <LockKeyhole size={16} />} Authenticate</button></form>
       <p className="mt-6 text-center text-xs text-slate-600">Credentials are exchanged for an HttpOnly session and are never stored by this client.</p>
@@ -67,6 +69,7 @@ function DeviceTable({ devices }: { devices: DashboardData['devices'] }) {
 
 // ────────────────────────── TOPOLOGY ──────────────────────────
 function TopologyMap({ data }: { data: DashboardData }) {
+  const [hoveredNode, setHoveredNode] = useState<string|null>(null)
   const nodes = useMemo(() => {
     const names = new Set(data.devices.map(device => device.hostname))
     data.topology.forEach(edge => { names.add(edge.source); names.add(edge.target) })
@@ -103,10 +106,41 @@ function TopologyMap({ data }: { data: DashboardData }) {
           })}
           {nodes.map(node => {
             const color = statusColor(node.device?.status)
-            return <g key={node.name} transform={`translate(${node.x} ${node.y})`}><circle r="38" fill={color} opacity=".08" filter="url(#nodeGlow)"/><rect x="-72" y="-31" width="144" height="62" rx="12" fill="#0d1917" stroke={color} strokeWidth="2"/><circle cx="-50" cy="-8" r="7" fill={color}/><text x="-36" y="-3" fill="#e2e8f0" fontSize="13" fontWeight="600">{node.name.length > 17 ? `${node.name.slice(0,16)}…` : node.name}</text><text x="-50" y="17" fill="#64748b" fontSize="10">{node.device?.type || 'Unmanaged device'}</text><title>{node.name} — {node.device?.status || 'unknown'}{node.device?.ipAddress ? ` — ${node.device.ipAddress}` : ''}</title></g>
+            const selected = hoveredNode === node.name
+            return <g key={node.name} transform={`translate(${node.x} ${node.y})`} tabIndex={0} role="img"
+              aria-label={`${node.name}, ${node.device?.status || 'unknown'}, ${node.device?.ipAddress || 'unmanaged'}`}
+              onMouseEnter={() => setHoveredNode(node.name)} onMouseLeave={() => setHoveredNode(null)}
+              onFocus={() => setHoveredNode(node.name)} onBlur={() => setHoveredNode(null)}
+              className="cursor-default outline-none">
+              <circle r="38" fill={color} opacity=".08" filter="url(#nodeGlow)"/>
+              <rect x="-72" y="-31" width="144" height="62" rx="12" fill="#0d1917" stroke={selected ? '#d6ff8a' : color} strokeWidth={selected ? 2.5 : 2}/>
+              <circle cx="-50" cy="-8" r="7" fill={color}/>
+              <text x="-36" y="-3" fill="#e2e8f0" fontSize="13" fontWeight="600">{node.name.length > 17 ? `${node.name.slice(0,16)}…` : node.name}</text>
+              <text x="-50" y="17" fill="#64748b" fontSize="10">{node.device?.type || 'Unmanaged device'}</text>
+              <title>{node.name} — {node.device?.status || 'unknown'}{node.device?.ipAddress ? ` — ${node.device.ipAddress}` : ''}</title>
+            </g>
           })}
+          {hoveredNode && (() => {
+            const node = nodes.find(item => item.name === hoveredNode)
+            if (!node) return null
+            const device = node.device
+            const x = Math.max(16, Math.min(644, node.x - 120))
+            const y = node.y > 180 ? node.y - 145 : node.y + 45
+            const color = statusColor(device?.status)
+            const truncate = (value:string, length:number) => value.length > length ? `${value.slice(0,length-1)}…` : value
+            return <g pointerEvents="none" aria-hidden="true">
+              <rect x={x} y={y} width="240" height="128" rx="12" fill="#101a18" stroke="#d6ff8a" strokeOpacity=".72" strokeWidth="1.5" filter="url(#nodeGlow)"/>
+              <text x={x+14} y={y+22} fill="#f1f5f9" fontSize="13" fontWeight="700">{truncate(node.name,28)}</text>
+              <circle cx={x+18} cy={y+42} r="4" fill={color}/>
+              <text x={x+29} y={y+46} fill={color} fontSize="10" fontWeight="700">{(device?.status || 'unknown').toUpperCase()}</text>
+              <text x={x+14} y={y+66} fill="#94a3b8" fontSize="10">IP · {device?.ipAddress || 'Not in managed inventory'}</text>
+              <text x={x+14} y={y+85} fill="#94a3b8" fontSize="10">Type · {truncate(device?.type || 'Unmanaged device',30)}</text>
+              <text x={x+14} y={y+104} fill="#94a3b8" fontSize="10">Location · {truncate(device?.location || '—',28)}</text>
+              <text x={x+14} y={y+120} fill="#64748b" fontSize="9">{device?.rttMs != null ? `RTT ${device.rttMs.toFixed(1)} ms` : 'RTT —'}  ·  {device?.lastUpdate ? formatTime(device.lastUpdate) : 'No recent telemetry'}</text>
+            </g>
+          })()}
         </svg>
-        {!data.topology.length && <p className="pb-5 text-center text-xs text-amber-300">No LLDP links discovered yet. Devices are displayed without connections.</p>}
+        {!data.topology.length && <div className="mx-auto max-w-xl pb-5 text-center"><p className="text-sm font-medium text-slate-300">No live LLDP neighbors received</p><p className="mt-1 text-xs leading-5 text-slate-500">Connections appear after monitored devices report neighbors through LLDP-MIB over SNMP. Enable LLDP and allow LLDP-MIB reads for the configured Telegraf SNMP targets.</p></div>}
       </div>
     </article>
     <aside className="space-y-4"><article className="panel p-5"><p className="label">Topology summary</p><div className="mt-4 space-y-3"><div className="flex justify-between text-sm text-slate-400"><span>Visible nodes</span><strong className="text-white">{nodes.length}</strong></div><div className="h-px bg-white/7"/><div className="flex justify-between text-sm text-slate-400"><span>Discovered links</span><strong className="text-white">{data.topology.length}</strong></div><div className="h-px bg-white/7"/><div className="flex justify-between text-sm text-slate-400"><span>Down devices</span><strong className={offline.length ? 'text-rose-300':'text-emerald-300'}>{offline.length}</strong></div></div></article><article className="panel overflow-hidden"><header className="border-b border-white/7 p-4"><p className="label">Service impact</p></header>{offline.length ? <div className="divide-y divide-white/[.06]">{offline.map(device=><div key={device.id} className="flex items-center gap-3 p-4"><span className="size-2 rounded-full bg-rose-400 shadow-[0_0_8px_#fb7185]"/><div><p className="text-sm font-medium text-slate-200">{device.hostname}</p><p className="text-xs text-slate-500">{device.ipAddress}</p></div></div>)}</div> : <div className="grid place-items-center gap-2 p-8 text-center text-sm text-slate-500"><CircleCheck className="text-emerald-400" size={24}/>All visible devices operational</div>}</article></aside>
@@ -290,6 +324,57 @@ function DeviceDetailPanel({ deviceId, onClose }: { deviceId: number; onClose: (
 }
 
 // ────────────────────────── INVENTORY VIEW ──────────────────────────
+type DeviceDraft = {
+  hostname: string; ipAddress: string; deviceType: string; location: string
+  snmpVersion: string; snmpCommunity: string; isMonitored: boolean
+}
+
+function DeviceEditor({ device, models, onClose, onSave }: {
+  device: InventoryDevice|null; models: DeviceModel[]; onClose: () => void
+  onSave: (payload: DevicePayload) => Promise<void>
+}) {
+  const [draft, setDraft] = useState<DeviceDraft>({
+    hostname: device?.hostname ?? '', ipAddress: device?.ipAddress ?? '',
+    deviceType: device?.deviceType ?? models[0]?.modelName ?? '', location: device?.location ?? '',
+    snmpVersion: device?.snmpVersion ?? 'v2c', snmpCommunity: '', isMonitored: device?.isMonitored ?? true,
+  })
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState('')
+  const update = <K extends keyof DeviceDraft>(key: K, value: DeviceDraft[K]) => setDraft(current => ({ ...current, [key]: value }))
+  async function submit(event: FormEvent) {
+    event.preventDefault(); setBusy(true); setError('')
+    try {
+      await onSave({ hostname:draft.hostname.trim(), ip_address:draft.ipAddress.trim(), device_type:draft.deviceType,
+        location:draft.location.trim(), snmp_community:draft.snmpCommunity, snmp_version:draft.snmpVersion,
+        is_monitored:draft.isMonitored })
+    } catch (err) { setError(err instanceof Error ? err.message : 'Unable to save this device.') }
+    finally { setBusy(false) }
+  }
+  const field = 'mt-1.5 w-full rounded-lg border border-white/10 bg-[#080f0e] px-3 py-2.5 text-sm text-slate-100 outline-none transition placeholder:text-slate-600 focus:border-[#d6ff8a]/60 focus:ring-2 focus:ring-[#d6ff8a]/10'
+  const label = 'block text-xs font-semibold text-slate-400'
+  return <div className="fixed inset-0 z-[60] grid place-items-center overflow-y-auto bg-black/70 p-4 backdrop-blur-sm" onMouseDown={event=>{if(event.target===event.currentTarget)onClose()}}>
+    <section role="dialog" aria-modal="true" aria-labelledby="device-form-title" className="my-auto w-full max-w-2xl overflow-hidden rounded-2xl border border-white/10 bg-[#0c1210] shadow-2xl shadow-black/60">
+      <header className="flex items-center justify-between border-b border-white/8 px-6 py-5"><div className="flex items-center gap-3"><img src="/ccl-logo-dark.png" alt="" className="size-10 rounded-full object-cover"/><div><p className="text-[10px] font-bold uppercase tracking-[.2em] text-[#d6ff8a]">Code Crafted Labs · NetPulse</p><h2 id="device-form-title" className="mt-1 text-lg font-semibold text-white">{device ? 'Edit device' : 'Add a device'}</h2></div></div><button type="button" onClick={onClose} aria-label="Close" className="grid size-9 place-items-center rounded-lg border border-white/10 text-slate-500 hover:text-white"><X size={17}/></button></header>
+      <form onSubmit={submit} className="space-y-6 p-6">
+        <div><p className="label">Device identity</p><div className="mt-3 grid gap-4 sm:grid-cols-2">
+          <label className={label}>Hostname <span className="text-[#d6ff8a]">*</span><input className={field} value={draft.hostname} onChange={e=>update('hostname',e.target.value)} required maxLength={255} placeholder="edge-router-01" autoFocus /></label>
+          <label className={label}>Management IP <span className="text-[#d6ff8a]">*</span><input className={field} type="text" inputMode="decimal" value={draft.ipAddress} onChange={e=>update('ipAddress',e.target.value)} required placeholder="192.168.10.10" pattern="[0-9a-fA-F:.]+(/[0-9]{1,3})?" title="Enter an IPv4 or IPv6 address, optionally with a CIDR prefix" /></label>
+          <label className={label}>Hardware model <span className="text-[#d6ff8a]">*</span><select className={field} value={draft.deviceType} onChange={e=>update('deviceType',e.target.value)} required><option value="" disabled>Select supported model</option>{device&&!models.some(model=>model.modelName===device.deviceType)&&<option value={device.deviceType}>{device.deviceType} · current</option>}{models.map(model=><option key={model.modelName} value={model.modelName}>{model.modelName}</option>)}</select>{!models.length&&<span className="mt-1 block text-[11px] text-amber-300">Hardware catalog unavailable</span>}</label>
+          <label className={label}>Site / location<input className={field} value={draft.location} onChange={e=>update('location',e.target.value)} maxLength={255} placeholder="Data center · Rack 04" /></label>
+        </div></div>
+        <div className="border-t border-white/8 pt-5"><p className="label">Monitoring and access</p><div className="mt-3 grid gap-4 sm:grid-cols-2">
+          <label className={label}>SNMP version<select className={field} value={draft.snmpVersion} onChange={e=>update('snmpVersion',e.target.value)}><option value="v2c">SNMPv2c · migration / lab</option>{device?.snmpVersion==='v3'&&<option value="v3">SNMPv3 · current</option>}</select>{!device&&<span className="mt-1 block text-[11px] text-slate-600">SNMPv3 onboarding is available when credential profiles are added.</span>}</label>
+          {draft.snmpVersion==='v2c'&&<label className={label}>SNMP community{device&&<span className="ml-1 font-normal text-slate-600">(leave blank to keep current)</span>}<input className={field} type="password" autoComplete="new-password" value={draft.snmpCommunity} onChange={e=>update('snmpCommunity',e.target.value)} placeholder={device?'Stored value is hidden':'Defaults to public'} /></label>}
+        </div>
+        <label className="mt-4 flex cursor-pointer items-start gap-3 rounded-xl border border-white/8 bg-white/[.02] p-4"><input type="checkbox" checked={draft.isMonitored} onChange={e=>update('isMonitored',e.target.checked)} className="mt-0.5 accent-[#d6ff8a]"/><span><strong className="block text-sm font-medium text-slate-200">Monitor this device</strong><span className="mt-1 block text-xs text-slate-500">Include this device in reachability monitoring and fleet health.</span></span></label>
+        </div>
+        {error&&<p role="alert" className="rounded-lg border border-rose-400/20 bg-rose-400/8 px-3 py-2 text-sm text-rose-300">{error}</p>}
+        <footer className="flex flex-col-reverse gap-2 border-t border-white/8 pt-4 sm:flex-row sm:justify-end"><button type="button" onClick={onClose} className="rounded-lg border border-white/10 px-4 py-2.5 text-sm text-slate-400 hover:text-white">Cancel</button><button disabled={busy||!models.length} className="inline-flex items-center justify-center gap-2 rounded-lg bg-[#d6ff8a] px-4 py-2.5 text-sm font-bold text-[#10150b] transition hover:bg-[#e2ffad] disabled:opacity-50">{busy?<RefreshCw size={15} className="animate-spin"/>:<CheckCircle size={15}/>} {device?'Save changes':'Add device'}</button></footer>
+      </form>
+    </section>
+  </div>
+}
+
 function InventoryView() {
   const [devices, setDevices] = useState<InventoryDevice[]>([])
   const [total, setTotal] = useState(0)
@@ -300,6 +385,14 @@ function InventoryView() {
   const [statusFilter, setStatusFilter] = useState('')
   const [typeFilter, setTypeFilter] = useState('')
   const [selectedId, setSelectedId] = useState<number|null>(null)
+  const [models, setModels] = useState<DeviceModel[]>([])
+  const [editorDevice, setEditorDevice] = useState<InventoryDevice|null|undefined>(undefined)
+  const [deleteTarget, setDeleteTarget] = useState<InventoryDevice|null>(null)
+  const [actionError, setActionError] = useState('')
+  const [saving, setSaving] = useState(false)
+  const [reloadKey, setReloadKey] = useState(0)
+
+  useEffect(() => { dashboardApi.deviceModels().then(setModels).catch(() => setModels([])) }, [])
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -315,7 +408,21 @@ function InventoryView() {
     } finally {
       setLoading(false)
     }
-  }, [page, search, statusFilter, typeFilter])
+  }, [page, search, statusFilter, typeFilter, reloadKey])
+
+  async function saveDevice(payload:DevicePayload) {
+    if (editorDevice) await dashboardApi.updateDevice(editorDevice.id,payload)
+    else await dashboardApi.createDevice(payload)
+    setEditorDevice(undefined); setActionError(''); setReloadKey(key=>key+1)
+  }
+
+  async function deleteDevice() {
+    if (!deleteTarget) return
+    setSaving(true); setActionError('')
+    try { await dashboardApi.deleteDevice(deleteTarget.id); setDeleteTarget(null); setSelectedId(null); setReloadKey(key=>key+1) }
+    catch (err) { setActionError(err instanceof Error ? err.message : 'Unable to delete this device.') }
+    finally { setSaving(false) }
+  }
 
   useEffect(() => { load() }, [load])
 
@@ -352,12 +459,14 @@ function InventoryView() {
           {loading ? <RefreshCw size={13} className="animate-spin"/> : null}
           <span>{total} device{total !== 1 ? 's' : ''}</span>
         </div>
+        <button onClick={()=>{setActionError('');setSelectedId(null);setEditorDevice(null)}} className="inline-flex items-center gap-2 rounded-lg bg-[#d6ff8a] px-3.5 py-2 text-xs font-bold text-[#10150b] transition hover:bg-[#e2ffad]"><Plus size={15}/> Add device</button>
       </div>
+      {actionError&&!deleteTarget&&<div role="alert" className="flex items-center gap-2 rounded-lg border border-rose-400/20 bg-rose-400/8 px-4 py-3 text-sm text-rose-300"><AlertTriangle size={15}/>{actionError}</div>}
 
       {/* Table */}
       <div className="panel overflow-hidden">
         <div className="overflow-x-auto">
-          <table className="w-full min-w-[900px] text-left text-sm">
+          <table className="w-full min-w-[1020px] text-left text-sm">
             <thead className="bg-black/10 text-[11px] uppercase tracking-wider text-slate-500">
               <tr>
                 <th className="px-4 py-3">Hostname</th>
@@ -369,6 +478,7 @@ function InventoryView() {
                 <th className="px-4 py-3">Interfaces</th>
                 <th className="px-4 py-3">Alarms</th>
                 <th className="px-4 py-3">Last poll</th>
+                <th className="px-4 py-3 text-right">Manage</th>
               </tr>
             </thead>
             <tbody>
@@ -397,6 +507,10 @@ function InventoryView() {
                       : <span className="text-xs text-slate-600">—</span>}
                   </td>
                   <td className="px-4 py-3 text-xs text-slate-600">{device.lastPoll ? formatTime(device.lastPoll) : '—'}</td>
+                  <td className="px-4 py-3"><div className="flex justify-end gap-1">
+                    <button aria-label={`Edit ${device.hostname}`} title="Edit device" onClick={event=>{event.stopPropagation();setActionError('');setSelectedId(null);setEditorDevice(device)}} className="grid size-8 place-items-center rounded-lg border border-white/8 text-slate-500 hover:border-[#d6ff8a]/30 hover:text-[#d6ff8a]"><Pencil size={14}/></button>
+                    <button aria-label={`Delete ${device.hostname}`} title="Delete device" onClick={event=>{event.stopPropagation();setActionError('');setDeleteTarget(device)}} className="grid size-8 place-items-center rounded-lg border border-white/8 text-slate-500 hover:border-rose-400/30 hover:text-rose-300"><Trash2 size={14}/></button>
+                  </div></td>
                 </tr>
               ))}
             </tbody>
@@ -423,6 +537,8 @@ function InventoryView() {
       {selectedId != null && (
         <DeviceDetailPanel deviceId={selectedId} onClose={() => setSelectedId(null)}/>
       )}
+      {editorDevice !== undefined&&<DeviceEditor device={editorDevice} models={models} onClose={()=>setEditorDevice(undefined)} onSave={saveDevice}/>}
+      {deleteTarget&&<div className="fixed inset-0 z-[60] grid place-items-center bg-black/70 p-4 backdrop-blur-sm"><section role="alertdialog" aria-modal="true" className="w-full max-w-md rounded-2xl border border-white/10 bg-[#0c1210] p-6 shadow-2xl"><div className="flex items-start gap-3"><div className="grid size-10 shrink-0 place-items-center rounded-xl bg-rose-400/10 text-rose-300"><Trash2 size={18}/></div><div><h2 className="font-semibold text-white">Delete {deleteTarget.hostname}?</h2><p className="mt-2 text-sm leading-6 text-slate-400">This removes the device from inventory and deletes its stored topology links. This action cannot be undone.</p></div></div>{actionError&&<p role="alert" className="mt-4 text-sm text-rose-300">{actionError}</p>}<div className="mt-6 flex justify-end gap-2"><button onClick={()=>setDeleteTarget(null)} className="rounded-lg border border-white/10 px-4 py-2 text-sm text-slate-400 hover:text-white">Cancel</button><button disabled={saving} onClick={deleteDevice} className="inline-flex items-center gap-2 rounded-lg bg-rose-400 px-4 py-2 text-sm font-bold text-[#1b090c] hover:bg-rose-300 disabled:opacity-50">{saving&&<RefreshCw size={14} className="animate-spin"/>}Delete device</button></div></section></div>}
     </div>
   )
 }
@@ -437,7 +553,6 @@ export default function App() {
   const [view, setView] = useState<View>('overview')
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
-  const [query, setQuery] = useState('')
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -452,12 +567,9 @@ export default function App() {
   if(authenticated===null) return <div className="grid min-h-screen place-items-center bg-[#07100f] text-emerald-300"><RefreshCw className="animate-spin"/></div>
   if(!authenticated) return <Login onAuthenticated={()=>setAuthenticated(true)}/>
 
-  const devices = data.devices.filter(device => `${device.hostname} ${device.ipAddress} ${device.type}`.toLowerCase().includes(query.toLowerCase()))
-
   const nav: {id:View,label:string,icon:React.ReactNode,count?:number}[] = [
     {id:'overview',label:'Operations',icon:<LayoutDashboard size={18}/>},
     {id:'topology',label:'Network topology',icon:<Network size={18}/>,count:data.topology.length},
-    {id:'devices',label:'Infrastructure',icon:<Boxes size={18} />,count:data.overview.monitored},
     {id:'inventory',label:'Fleet inventory',icon:<Server size={18}/>,count:data.overview.monitored},
     {id:'alerts',label:'Active alerts',icon:<AlertTriangle size={18}/>,count:data.overview.openAlerts},
   ]
@@ -466,9 +578,9 @@ export default function App() {
     <div className="min-h-screen bg-[#07100f] text-slate-300">
       {/* Sidebar */}
       <aside className="fixed inset-y-0 left-0 z-20 hidden w-64 border-r border-white/7 bg-[#091312] lg:block">
-        <div className="flex h-20 items-center gap-3 border-b border-white/7 px-6">
-          <div className="grid size-9 place-items-center rounded-lg bg-emerald-400 text-[#07100f]"><Radio size={20}/></div>
-          <div><p className="text-sm font-bold tracking-wide text-white">NETPULSE</p><p className="text-[10px] uppercase tracking-[.2em] text-emerald-400">Command center</p></div>
+        <div className="flex h-20 items-center gap-3 border-b border-white/7 px-5">
+          <img src="/ccl-logo-dark.png" alt="Code Crafted Labs" className="size-10 rounded-full object-cover" />
+          <div><p className="text-xs font-bold tracking-wide text-white">CODE CRAFTED LABS</p><p className="text-[10px] uppercase tracking-[.18em] text-[#d6ff8a]">NetPulse · Command center</p></div>
         </div>
         <nav className="p-4">
           <p className="px-3 py-3 text-[10px] font-bold uppercase tracking-[.2em] text-slate-600">Monitor</p>
@@ -485,6 +597,7 @@ export default function App() {
             <p className="mt-1.5 text-[10px] leading-relaxed text-slate-500">6 strategies: device-down, link-state, admin/oper mismatch, high CPU, high memory, SNMP failure</p>
           </div>
         </nav>
+        <div className="absolute bottom-[136px] w-full px-6 text-[10px] tracking-wide text-slate-600">A network operations platform by <span className="text-slate-400">Code Crafted Labs</span></div>
         <div className="absolute bottom-0 w-full border-t border-white/7 p-4">
           <div className="mb-3 flex items-center gap-3 rounded-lg bg-white/[.025] p-3">
             <div className="grid size-8 place-items-center rounded-full bg-emerald-400/10 text-emerald-300"><ShieldCheck size={16}/></div>
@@ -497,12 +610,8 @@ export default function App() {
       {/* Main content */}
       <div className="lg:pl-64">
         <header className="sticky top-0 z-10 flex h-20 items-center gap-4 border-b border-white/7 bg-[#07100f]/90 px-5 backdrop-blur-xl sm:px-8">
-          <div className="lg:hidden"><Radio className="text-emerald-400"/></div>
-          <div className="relative max-w-md flex-1">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-600" size={16}/>
-            <input value={query} onChange={e=>setQuery(e.target.value)} placeholder="Search assets or addresses"
-              className="w-full rounded-lg border border-white/8 bg-white/[.025] py-2.5 pl-10 pr-3 text-sm outline-none focus:border-emerald-400/40"/>
-          </div>
+          <div className="lg:hidden flex items-center gap-2"><img src="/ccl-logo-dark.png" alt="Code Crafted Labs" className="size-8 rounded-full object-cover"/><Radio className="text-[#d6ff8a]"/></div>
+          <div className="flex-1"/>
           <button onClick={load} aria-label="Refresh dashboard" className="grid size-9 place-items-center rounded-lg border border-white/8 text-slate-500 hover:text-emerald-300">
             <RefreshCw className={loading?'animate-spin':''} size={16}/>
           </button>
@@ -522,7 +631,6 @@ export default function App() {
           {error&&<div role="alert" className="mb-4 flex items-center gap-2 rounded-lg border border-amber-400/20 bg-amber-400/8 p-3 text-sm text-amber-200"><AlertTriangle size={16}/>{error}</div>}
           {view==='overview'&&<Overview data={data}/>}
           {view==='topology'&&<TopologyMap data={data}/>}
-          {view==='devices'&&<DeviceTable devices={devices}/>}
           {view==='inventory'&&<InventoryView/>}
           {view==='alerts'&&<Alerts events={data.events}/>}
         </main>

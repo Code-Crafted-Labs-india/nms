@@ -15,7 +15,7 @@ The data flows through 4 distinct layers:
 2. **Ingestion Agent**: Telegraf polls SNMP metrics from the devices and dumps raw telemetry directly into TimescaleDB.
 3. **Storage Layer**: PostgreSQL equipped with TimescaleDB extension maintains strict relational inventory while ingesting high-velocity time-series metrics into hypertables.
 4. **Processing Middleware**: A concurrent Go backend executes high-speed ICMP sweeps, processes raw telemetry into actionable relational graphs (LLDP topology), provisions unmanaged devices (Auto-Discovery), evaluates 6 alarm strategies, and exposes a REST API for management.
-5. **Presentation Layer**: The secured Go API supplies the Bun/React command center with fleet health, time-series, alarm, inventory, topology, and device-detail data. Grafana remains an optional loopback-only engineering aid.
+5. **Presentation Layer**: The secured Go API supplies the Bun/React command center with fleet health, time-series, alarm, inventory, topology, and device-detail data. The UI now includes "Code Crafted Labs" branding. Grafana remains an optional loopback-only engineering aid.
 
 ---
 
@@ -58,7 +58,7 @@ The data flows through 4 distinct layers:
 | `ping/` | High-speed concurrent ICMP sweep engine. Writes `device_health_metrics`. | ✅ Stable |
 | `alert/` | Alarm evaluation engine: worker pool dispatches 6 strategies against all monitored devices every 30s. All strategies now support **auto-clear on recovery** with hysteresis. | ✅ Stable |
 | `handlers/dashboard.go` | `GET /api/v1/dashboard` — overview, devices, events, metrics, topology. | ✅ Stable |
-| `handlers/devices.go` | `POST/PUT/DELETE /api/devices` — device CRUD. | ✅ Stable |
+| `handlers/devices.go` | `POST/PUT/DELETE /api/devices` — device CRUD. Updated to include location metadata and proper Cisco NCS 540 catalog validation. | ✅ Updated |
 | `handlers/inventory.go` | `GET /api/v1/devices` — paginated/filtered fleet inventory. `GET /api/v1/devices/{id}` — full device detail. `POST /api/v1/alarms/{id}/resolve` — manual alarm resolution. | ✅ New (2026-10-01) |
 | `handlers/security.go` | Session auth, CSRF, CORS, RBAC middleware. | ✅ Stable |
 | `main.go` | Orchestration: bootstraps DB, background workers, alarm engine (6 strategies), and REST API mux. | ✅ Stable |
@@ -69,9 +69,9 @@ The data flows through 4 distinct layers:
 
 The physical link discovery and visualization lifecycle operates completely automatically:
 
-1. **Telegraf Queries**: Telegraf utilizes `inputs.snmp.table` to query `LLDP-MIB::lldpRemTable` across all monitored devices.
+1. **Telegraf Queries**: Telegraf uses `inputs.snmp.table` to poll the standard LLDP remote-systems columns for the configured SNMP target list. Devices must advertise LLDP and grant the configured SNMP principal LLDP-MIB read access.
 2. **Raw Storage**: Telegraf saves the resulting MIB payload natively into the `snmp_lldp_topology` table.
-3. **Go Processing**: The Go `topology` engine sweeps `snmp_lldp_topology` every 30 seconds. It parses the `agent_host` and `target_device` and commits them as discrete edge pairs into the relational `network_topology` table.
+3. **Go Processing**: The Go `topology` engine sweeps fresh `snmp_lldp_topology` rows every 30 seconds, resolves neighbor system names to inventory hostnames, falls back to advertised chassis IDs, and expires edges that are no longer observed.
 4. **React Presentation**: The authenticated dashboard API returns the normalized nodes, live device status, and topology edges. The React topology view renders the graph and marks online, down, and unknown devices.
 
 ---
@@ -84,7 +84,7 @@ Based on [`docs/product-future-scope.md`](docs/product-future-scope.md):
 
 | Scope Item | Priority | Status | Implementation |
 |---|---|---|---|
-| Add-device form and credential-profile APIs | P0 | 🟡 Partial | `POST /api/devices` — basic add with `device_models` catalog gate. Credential profile table not yet separate. |
+| Add-device form and credential-profile APIs | P0 | 🟡 Partial | Inventory now provides Add/Edit/Delete forms backed by authenticated CRUD endpoints and the supported-model catalog. Device fields include address, model, location, SNMP version/community, and monitoring state. Credential profile table and connectivity preflight are still pending. |
 | Fleet inventory with pagination and filters | P0 | ✅ Done | `GET /api/v1/devices` — paginated (50/page), filterable by status, type, hostname/IP search. |
 | Device overview tab | P0 | ✅ Done | `GET /api/v1/devices/{id}` — identity, reachability, CPU/mem, alarm count. |
 | Device interfaces tab | P0 | ✅ Done | Returns per-interface oper/admin/speed/rx/tx/errors/optical in device detail response. |
@@ -157,9 +157,19 @@ Based on [`docs/product-future-scope.md`](docs/product-future-scope.md):
 |---|---|---|---|
 | Operations | `Operations` | ✅ Done | Overview stats, latency sparkline, fleet posture donut, CPU/mem sparklines, mini device table |
 | Network topology | `Network topology` | ✅ Done | SVG LLDP topology graph, topology summary, offline impact list |
-| Infrastructure | `Infrastructure` | ✅ Done | Basic device table with search |
+| Infrastructure | `Infrastructure` | ✅ Updated | Code Crafted Labs branded fleet inventory with Add/Edit/Delete device forms and supported-model selection |
 | Fleet inventory | `Fleet inventory` | ✅ New | Paginated/filtered inventory table; click row → Device Detail slide panel (Overview / Interfaces / Alarms tabs with manual alarm resolve) |
 | Active alerts | `Active alerts` | ✅ Done | Event stream of unresolved network_events |
+| Branding | N/A | ✅ Done | UI successfully integrated Code Crafted Labs logo and assets. |
+
+---
+
+## 🏗️ 8. Recent Progress Summary
+* **Expanded Fleet (14 Devices)**: Scaled the mock environment by adding 9 new devices to `docker-compose.yml` (stress tests, WAN edges, firewalls, and distribution switches).
+* **Hardware Identity Updates**: Refactored the `ucd-sim` and container definitions to report as **Cisco NCS 540 Series** (e.g., `NCS 540-24Z8Q2C-SYS`, `NCS 540X-16Z4G8Q2C-A`). The Go db model catalog was upgraded from the ATS placeholders.
+* **Telemetry Adjustments**: Pushed all 14 mock IPs into `telegraf.conf` across ICMP, SNMP health, and IF-MIB polling tracks.
+* **Device CRUD Endpoints**: Injected `location` handling into `DevicePayload` and updated INSERT/UPDATE queries in `devices.go` along with specific conflict error mappings (hostname vs. IP duplication).
+* **UI Branding**: Imported the Code Crafted Labs custom logos (`ccl-logo.png` & `ccl-logo-dark.png`) into the frontend's public path.
 
 ---
 

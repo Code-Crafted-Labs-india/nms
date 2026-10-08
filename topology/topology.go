@@ -33,23 +33,31 @@ func syncTopology(database *db.DB) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
-	// Single resolved query: JOIN snmp_lldp_topology against the devices inventory
-	// to resolve raw IP agent_host values into registered hostnames.
-	// Falls back to the raw IP string if no match found so we never silently drop edges.
-	// Uses canonical Telegraf column names: lldp_rem_sys_name (remote hostname),
-	// lldp_rem_port_id (remote port). The lldpRemTable index encodes the local port number
-	// as the third component of the OID index (lldp_local_port_num).
+	// Resolve live LLDP-MIB rows to the local device inventory. The remote system
+	// name is optional in LLDP, so use the advertised chassis ID as the neighbor
+	// identifier when a remote system name is unavailable. Telegraf's index tag
+	// encodes timeMark.localPortNum.remIndex; the second component is the local port.
 	rows, err := database.Pool.Query(ctx, `
 		SELECT
-			COALESCE(src.hostname, lldp.agent_host::text)  AS source_device,
-			lldp.lldp_local_port_num::text                 AS source_port,
-			COALESCE(NULLIF(lldp.lldp_rem_sys_name, ''), lldp.agent_host::text) AS target_device,
-			COALESCE(NULLIF(lldp.lldp_rem_port_id, ''), 'unknown')              AS target_port
+			COALESCE(src.hostname, lldp.agent_host::text) AS source_device,
+			COALESCE(lldp.lldp_local_port_num::text, NULLIF(split_part(lldp."index", '.', 2), ''), 'unknown') AS source_port,
+			COALESCE(dst.hostname, NULLIF(BTRIM(lldp.lldp_rem_sys_name), ''), NULLIF(BTRIM(lldp.lldp_rem_chassis_id), '')) AS target_device,
+			COALESCE(NULLIF(BTRIM(lldp.lldp_rem_port_id), ''), 'unknown') AS target_port
 		FROM snmp_lldp_topology lldp
 		LEFT JOIN devices src ON src.ip_address = lldp.agent_host::inet
+		LEFT JOIN LATERAL (
+			SELECT d.hostname
+			FROM devices d
+			WHERE NULLIF(BTRIM(lldp.lldp_rem_sys_name), '') IS NOT NULL
+			  AND (LOWER(d.hostname) = LOWER(BTRIM(lldp.lldp_rem_sys_name))
+			       OR LOWER(d.hostname) = LOWER(SPLIT_PART(BTRIM(lldp.lldp_rem_sys_name), '.', 1)))
+			ORDER BY CASE WHEN LOWER(d.hostname) = LOWER(BTRIM(lldp.lldp_rem_sys_name)) THEN 0 ELSE 1 END
+			LIMIT 1
+		) dst ON TRUE
 		WHERE lldp.time > NOW() - INTERVAL '5 minutes'
-		  AND lldp.lldp_rem_sys_name IS NOT NULL
-		  AND lldp.lldp_rem_sys_name <> ''
+		  AND lldp.agent_host IS NOT NULL
+		  AND (NULLIF(BTRIM(lldp.lldp_rem_sys_name), '') IS NOT NULL
+		       OR NULLIF(BTRIM(lldp.lldp_rem_chassis_id), '') IS NOT NULL)
 	`)
 	if err != nil {
 		return err
@@ -73,17 +81,46 @@ func syncTopology(database *db.DB) error {
 			continue
 		}
 
-		_, err := database.Pool.Exec(ctx, `
-			INSERT INTO network_topology (source_device, source_port, target_device, target_port, updated_at)
-			VALUES ($1, $2, $3, $4, NOW())
-			ON CONFLICT DO NOTHING`,
+		// Refresh the observation timestamp for a live edge. UPDATE + INSERT also
+		// works with older installations whose topology table predates the unique
+		// constraint used by current migrations.
+		tag, err := database.Pool.Exec(ctx, `
+			UPDATE network_topology
+			SET time = NOW(), updated_at = NOW()
+			WHERE source_device = $1
+			  AND source_port IS NOT DISTINCT FROM $2
+			  AND target_device = $3
+			  AND target_port IS NOT DISTINCT FROM $4`,
 			sourceDevice, sourcePort, targetDevice, targetPort,
 		)
 		if err != nil {
-			log.Printf("[Topology DB Error] Edge upsert failed (%s -> %s): %v", sourceDevice, targetDevice, err)
-		} else {
-			committedCount++
+			log.Printf("[Topology DB Error] Edge refresh failed (%s -> %s): %v", sourceDevice, targetDevice, err)
+			skippedCount++
+			continue
 		}
+		if tag.RowsAffected() == 0 {
+			_, err = database.Pool.Exec(ctx, `
+				INSERT INTO network_topology (source_device, source_port, target_device, target_port, updated_at)
+				VALUES ($1, $2, $3, $4, NOW())`,
+				sourceDevice, sourcePort, targetDevice, targetPort,
+			)
+			if err != nil {
+				log.Printf("[Topology DB Error] Edge insert failed (%s -> %s): %v", sourceDevice, targetDevice, err)
+				skippedCount++
+				continue
+			}
+		}
+		committedCount++
+	}
+	if err := rows.Err(); err != nil {
+		return err
+	}
+
+	// network_topology is the current graph, not an event history. Expire links
+	// that have not been observed in the raw LLDP table during its five-minute
+	// freshness window.
+	if _, err := database.Pool.Exec(ctx, `DELETE FROM network_topology WHERE updated_at < NOW() - INTERVAL '5 minutes'`); err != nil {
+		return err
 	}
 
 	log.Printf("[Topology] Sync complete: %d edges committed, %d skipped", committedCount, skippedCount)
