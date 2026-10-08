@@ -122,6 +122,19 @@ CREATE TABLE IF NOT EXISTS network_events (
     resolved_at TIMESTAMPTZ
 );
 
+-- Application access and administration activity. Store request metadata only;
+-- never persist request bodies, credentials, query strings, or client addresses.
+CREATE TABLE IF NOT EXISTS audit_events (
+    id BIGSERIAL PRIMARY KEY,
+    occurred_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    actor TEXT NOT NULL,
+    action TEXT NOT NULL,
+    outcome TEXT NOT NULL CHECK (outcome IN ('success', 'failure')),
+    method TEXT NOT NULL DEFAULT '',
+    path TEXT NOT NULL DEFAULT '',
+    status_code INTEGER NOT NULL DEFAULT 0
+);
+
 CREATE TABLE IF NOT EXISTS network_topology (
     id SERIAL PRIMARY KEY,
     time TIMESTAMPTZ NOT NULL DEFAULT NOW(),
@@ -182,6 +195,8 @@ CREATE INDEX IF NOT EXISTS idx_snmp_health_agent_time
     ON snmp_device_health (agent_host, time DESC);
 CREATE INDEX IF NOT EXISTS idx_network_events_open
     ON network_events (resolved, severity, time DESC);
+CREATE INDEX IF NOT EXISTS idx_audit_events_occurred_at
+    ON audit_events (occurred_at DESC);
 CREATE INDEX IF NOT EXISTS idx_topology_updated
     ON network_topology (updated_at DESC);
 

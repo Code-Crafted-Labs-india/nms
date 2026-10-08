@@ -165,6 +165,28 @@ var schema = []tableSpec{
 			{name: "resolved_at", dataType: "TIMESTAMPTZ", allowNull: true},
 		},
 	},
+	{
+		name: "audit_events",
+		createDDL: `CREATE TABLE IF NOT EXISTS audit_events (
+			id BIGSERIAL PRIMARY KEY,
+			occurred_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+			actor TEXT NOT NULL,
+			action TEXT NOT NULL,
+			outcome TEXT NOT NULL CHECK (outcome IN ('success', 'failure')),
+			method TEXT NOT NULL DEFAULT '',
+			path TEXT NOT NULL DEFAULT '',
+			status_code INTEGER NOT NULL DEFAULT 0
+		)`,
+		columns: []columnSpec{
+			{name: "occurred_at", dataType: "TIMESTAMPTZ", allowNull: false},
+			{name: "actor", dataType: "TEXT", allowNull: false},
+			{name: "action", dataType: "TEXT", allowNull: false},
+			{name: "outcome", dataType: "TEXT", allowNull: false},
+			{name: "method", dataType: "TEXT", allowNull: false},
+			{name: "path", dataType: "TEXT", allowNull: false},
+			{name: "status_code", dataType: "INTEGER", allowNull: false},
+		},
+	},
 }
 
 // RunMigrations is the self-healing schema synchronization entry point.
@@ -188,9 +210,22 @@ func RunMigrations(ctx context.Context, database *DB, logger *slog.Logger) error
 	if err := verifyDeviceModelCount(ctx, database, logger); err != nil {
 		logger.Warn("[Schema Sync] Device model catalog count discrepancy detected", "err", err)
 	}
+	if _, err := database.Pool.Exec(ctx, `CREATE INDEX IF NOT EXISTS idx_audit_events_occurred_at ON audit_events (occurred_at DESC)`); err != nil {
+		return fmt.Errorf("audit event index creation failed: %w", err)
+	}
 
 	logger.Info("[Schema Sync] All schema checks passed. Database is in the desired state.")
 	return nil
+}
+
+// RecordAuditEvent appends a metadata-only authentication or API activity event.
+// Request bodies, credentials, query strings, and client addresses are excluded.
+func (database *DB) RecordAuditEvent(ctx context.Context, actor, action, outcome, method, path string, statusCode int) error {
+	_, err := database.Pool.Exec(ctx, `
+		INSERT INTO audit_events (actor, action, outcome, method, path, status_code)
+		VALUES ($1, $2, $3, $4, $5, $6)
+	`, actor, action, outcome, method, path, statusCode)
+	return err
 }
 
 // syncTable ensures a single table and its required columns conform to spec.

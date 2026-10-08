@@ -202,6 +202,12 @@ For a real-device pilot and production-readiness checklist, see the
 Compose and Telegraf configurations are for the simulated demo environment and
 must be adapted and security-reviewed before polling real equipment.
 
+The PRL client-specification gap analysis and staged delivery plan are in
+[`docs/client-requirements-gap-plan.md`](docs/client-requirements-gap-plan.md).
+The client-facing response draft, indicative timeline, assumptions, and
+internal delivery checklist are in
+[`docs/client-response-and-delivery-estimate.md`](docs/client-response-and-delivery-estimate.md).
+
 The prioritized operator-product roadmap derived from the supplied NMS
 references is documented in
 [`docs/product-future-scope.md`](docs/product-future-scope.md).
