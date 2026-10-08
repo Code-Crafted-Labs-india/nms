@@ -65,6 +65,15 @@ func main() {
 		logger: logger,
 		db:     database,
 	}
+	sessions.SetAuditRecorder(func(ctx context.Context, actor, action, outcome, method, path string, status int) error {
+		writeCtx, cancel := context.WithTimeout(ctx, 2*time.Second)
+		defer cancel()
+		if err := database.RecordAuditEvent(writeCtx, actor, action, outcome, method, path, status); err != nil {
+			logger.Error("failed to persist authentication audit event", "action", action, "outcome", outcome, "error", err)
+			return err
+		}
+		return nil
+	})
 
 	// 1. Initialize the managed root context to automatically catch OS termination events
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
@@ -92,9 +101,9 @@ func main() {
 		alert.NewDeviceDownStrategy(logger, 1*time.Minute),
 		alert.NewLinkStateStrategy(logger),
 		alert.NewAdminOperMismatchStrategy(logger),
-		alert.NewHighCPUUtilizationStrategy(logger, 85.0),                             // Alarm #3 (CPU) — fires above 85%
-		alert.NewHighMemoryUtilizationStrategy(logger, 80.0, 95.0),                    // Alarm #3 (Memory) — warning=80%, critical=95%
-		alert.NewSNMPCommunicationFailureStrategy(logger, 5*time.Minute),              // Alarm #4 — stale window 5 min
+		alert.NewHighCPUUtilizationStrategy(logger, 85.0),                // Alarm #3 (CPU) — fires above 85%
+		alert.NewHighMemoryUtilizationStrategy(logger, 80.0, 95.0),       // Alarm #3 (Memory) — warning=80%, critical=95%
+		alert.NewSNMPCommunicationFailureStrategy(logger, 5*time.Minute), // Alarm #4 — stale window 5 min
 	}
 	logger.Info("Registered operational network alarm matrix successfully", "count", len(strategies))
 
@@ -103,21 +112,25 @@ func main() {
 
 	// Initialize REST API multiplexer with request logger middleware
 	mux := http.NewServeMux()
+	audited := func(action string, handler http.Handler) http.Handler {
+		return sessions.Authenticate(handlers.AuditActivity(database, app.logger, action, handlers.RequestLogger(handler)))
+	}
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusNoContent) })
 	mux.Handle("/api/session", handlers.RequestLogger(http.HandlerFunc(sessions.HandleSession)))
-	mux.Handle("GET /api/v1/dashboard", sessions.Authenticate(handlers.RequestLogger(handlers.DashboardHandler(database))))
-	mux.Handle("GET /api/v1/device-models", sessions.Authenticate(handlers.RequestLogger(handlers.DeviceModelsHandler(database))))
-	mux.Handle("POST /api/devices", sessions.Authenticate(handlers.RequestLogger(handlers.AddDeviceHandler(database))))
-	mux.Handle("PUT /api/devices/{id}", sessions.Authenticate(handlers.RequestLogger(handlers.EditDeviceHandler(database))))
-	mux.Handle("DELETE /api/devices/{id}", sessions.Authenticate(handlers.RequestLogger(handlers.DeleteDeviceHandler(database))))
+	mux.Handle("GET /api/v1/dashboard", audited("dashboard.read", handlers.DashboardHandler(database)))
+	mux.Handle("GET /api/v1/device-models", audited("device_models.read", handlers.DeviceModelsHandler(database)))
+	mux.Handle("POST /api/devices", audited("devices.create", handlers.AddDeviceHandler(database)))
+	mux.Handle("PUT /api/devices/{id}", audited("devices.update", handlers.EditDeviceHandler(database)))
+	mux.Handle("DELETE /api/devices/{id}", audited("devices.delete", handlers.DeleteDeviceHandler(database)))
 	// Explicit OPTIONS routes for preflight on parameterized paths
 	mux.Handle("OPTIONS /api/devices", handlers.RequestLogger(handlers.PreflightHandler()))
 	mux.Handle("OPTIONS /api/devices/{id}", handlers.RequestLogger(handlers.PreflightHandler()))
 	// P0 Inventory endpoints: paginated fleet list and per-device detail
-	mux.Handle("GET /api/v1/devices", sessions.Authenticate(handlers.RequestLogger(handlers.InventoryHandler(database))))
-	mux.Handle("GET /api/v1/devices/{id}", sessions.Authenticate(handlers.RequestLogger(handlers.DeviceDetailHandler(database))))
+	mux.Handle("GET /api/v1/devices", audited("devices.list", handlers.InventoryHandler(database)))
+	mux.Handle("GET /api/v1/devices/{id}", audited("devices.read", handlers.DeviceDetailHandler(database)))
 	// Alarm management: manual resolve
-	mux.Handle("POST /api/v1/alarms/{id}/resolve", sessions.Authenticate(handlers.RequestLogger(handlers.ResolveAlarmHandler(database))))
+	mux.Handle("POST /api/v1/alarms/{id}/resolve", audited("alarms.resolve", handlers.ResolveAlarmHandler(database)))
+	mux.Handle("GET /api/v1/audit", audited("audit.read", handlers.AuditEventsHandler(database)))
 
 	// Binding to :8080 (all interfaces) is required when Grafana runs in a
 	// separate Docker container — binding to 127.0.0.1 would be unreachable

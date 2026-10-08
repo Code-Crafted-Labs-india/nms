@@ -40,8 +40,11 @@ Our current NetPulse software is a custom-developed monitoring platform. It
 provides a foundation for inventory, basic telemetry, polling-based alarms,
 device views, and LLDP topology, but it is not currently an OEM-supported or
 commercially established NMS and does not currently provide the full switch
-configuration, VLAN/policy deployment, firmware lifecycle, audit, notification,
-or NTA scope in the specification.
+configuration, VLAN/policy deployment, firmware lifecycle, full person-level
+audit and SIEM controls, notification, or NTA scope in the specification. A
+basic metadata audit log for authentication and API activity is now present,
+but it attributes users only to the shared bootstrap account and does not
+provide before/after change diffs or protected external retention.
 
 Accordingly, we will not represent NetPulse as fully compliant with the
 OEM/commercial-product requirements or claim that planned features are already

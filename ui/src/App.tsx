@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import type { FormEvent } from 'react'
 import {
-  Activity, AlertTriangle, Bell, CheckCircle, ChevronLeft, ChevronRight,
+  Activity, AlertTriangle, Bell, CheckCircle, ChevronLeft, ChevronRight, ClipboardList,
   CircleCheck, Cpu, Filter, LayoutDashboard, LockKeyhole, LogOut,
   MemoryStick, Network, Plus, Radio, RefreshCw, Search,
   Server, ShieldCheck, Wifi, WifiOff, X, Zap,
@@ -11,10 +11,10 @@ import {
   ApiError, dashboardApi,
   type DashboardData, type MetricPoint,
   type InventoryDevice, type DeviceDetail, type DeviceAlarm, type DeviceInterface,
-  type DeviceModel, type DevicePayload,
+  type DeviceModel, type DevicePayload, type AuditEvent,
 } from './api'
 
-type View = 'overview' | 'topology' | 'alerts' | 'inventory'
+type View = 'overview' | 'topology' | 'alerts' | 'inventory' | 'audit'
 const emptyDashboard: DashboardData = {
   generatedAt: '', overview: { monitored: 0, online: 0, offline: 0, openAlerts: 0 },
   devices: [], events: [], latency: [], cpu: [], memory: [], topology: [],
@@ -159,6 +159,45 @@ function Overview({ data }: { data: DashboardData }) {
 // ────────────────────────── ALERTS ──────────────────────────
 function Alerts({ events }: { events: DashboardData['events'] }) {
   return <section className="panel overflow-hidden"><header className="border-b border-white/7 px-5 py-5"><p className="label">Event stream</p><h2 className="mt-1 text-lg font-semibold text-white">Active alerts</h2></header><div className="divide-y divide-white/[.06]">{events.map((event,index)=><article key={`${event.time}-${index}`} className="flex gap-4 p-5"><div className={`mt-0.5 grid size-9 shrink-0 place-items-center rounded-lg ${event.severity==='CRITICAL'?'bg-rose-400/10 text-rose-300':'bg-amber-400/10 text-amber-300'}`}><AlertTriangle size={17}/></div><div className="min-w-0 flex-1"><div className="flex flex-wrap items-center gap-2"><strong className="text-sm text-slate-200">{event.type}</strong><span className="text-xs text-slate-500">{event.device}</span></div><p className="mt-1 text-sm text-slate-400">{event.message}</p><time className="mt-2 block text-xs text-slate-600">{formatTime(event.time)}</time></div></article>)}{!events.length&&<div className="grid place-items-center gap-3 p-16 text-sm text-slate-500"><CircleCheck size={28} className="text-emerald-400"/>No unresolved alerts</div>}</div></section>
+}
+
+function AuditView() {
+  const [events, setEvents] = useState<AuditEvent[]>([])
+  const [page, setPage] = useState(1)
+  const [error, setError] = useState('')
+  const [loading, setLoading] = useState(true)
+  useEffect(() => {
+    let active = true
+    setLoading(true); setError('')
+    dashboardApi.audit(page).then(result => { if (active) setEvents(result.events) })
+      .catch(() => { if (active) setError('Audit activity could not be loaded.') })
+      .finally(() => { if (active) setLoading(false) })
+    return () => { active = false }
+  }, [page])
+  return <section className="panel overflow-hidden">
+    <header className="flex flex-wrap items-center justify-between gap-3 border-b border-white/7 px-5 py-5">
+      <div><p className="label">Administrative activity</p><h2 className="mt-1 text-lg font-semibold text-white">Audit events</h2>
+        <p className="mt-1 text-xs text-slate-500">Shared bootstrap login is recorded as bootstrap-admin.</p></div>
+      <div className="flex items-center gap-2">
+        <button disabled={page<=1||loading} onClick={()=>setPage(p=>Math.max(1,p-1))} className="rounded-lg border border-white/10 px-3 py-2 text-xs disabled:opacity-40">Previous</button>
+        <span className="text-xs text-slate-500">Page {page}</span>
+        <button disabled={events.length<50||loading} onClick={()=>setPage(p=>p+1)} className="rounded-lg border border-white/10 px-3 py-2 text-xs disabled:opacity-40">Next</button>
+      </div>
+    </header>
+    {error&&<p role="alert" className="m-5 rounded-lg border border-rose-400/20 bg-rose-400/5 p-3 text-sm text-rose-300">{error}</p>}
+    {loading?<p className="p-8 text-sm text-slate-500">Loading audit events…</p>:<div className="overflow-x-auto">
+      <table className="w-full min-w-[760px] text-left text-sm"><thead className="bg-black/10 text-[10px] uppercase tracking-wider text-slate-500"><tr>
+        <th className="px-5 py-3">Time</th><th className="px-5 py-3">Actor</th><th className="px-5 py-3">Action</th><th className="px-5 py-3">Request</th><th className="px-5 py-3">Result</th>
+      </tr></thead><tbody>{events.map(event=><tr key={event.id} className="border-t border-white/[.055]">
+        <td className="whitespace-nowrap px-5 py-3 text-xs text-slate-500">{formatTime(event.occurred_at)}</td>
+        <td className="px-5 py-3 text-xs text-slate-300">{event.actor}</td>
+        <td className="px-5 py-3 text-xs text-slate-300">{event.action}</td>
+        <td className="px-5 py-3 font-mono text-[11px] text-slate-500">{event.method} {event.path}</td>
+        <td className="px-5 py-3"><span className={event.outcome==='success'?'text-emerald-300':'text-rose-300'}>{event.outcome} · {event.status_code}</span></td>
+      </tr>)}</tbody></table>
+      {!events.length&&!error&&<div className="grid place-items-center gap-3 p-12 text-sm text-slate-500"><ClipboardList size={25}/>No audit events recorded yet</div>}
+    </div>}
+  </section>
 }
 
 // ────────────────────────── DEVICE DETAIL PANEL ──────────────────────────
@@ -572,6 +611,7 @@ export default function App() {
     {id:'topology',label:'Network topology',icon:<Network size={18}/>,count:data.topology.length},
     {id:'inventory',label:'Fleet inventory',icon:<Server size={18}/>,count:data.overview.monitored},
     {id:'alerts',label:'Active alerts',icon:<AlertTriangle size={18}/>,count:data.overview.openAlerts},
+    {id:'audit',label:'Audit events',icon:<ClipboardList size={18}/>},
   ]
 
   return (
@@ -633,6 +673,7 @@ export default function App() {
           {view==='topology'&&<TopologyMap data={data}/>}
           {view==='inventory'&&<InventoryView/>}
           {view==='alerts'&&<Alerts events={data.events}/>}
+          {view==='audit'&&<AuditView/>}
         </main>
       </div>
     </div>

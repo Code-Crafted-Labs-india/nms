@@ -18,8 +18,11 @@ type sessionContextKey struct{}
 
 type session struct {
 	CSRF      string
+	Actor     string
 	ExpiresAt time.Time
 }
+
+type AuditRecorder func(context.Context, string, string, string, string, string, int) error
 
 // SessionStore keeps short-lived, opaque sessions in process memory. A restart
 // invalidates every session, which is a safe failure mode for an operator UI.
@@ -28,6 +31,7 @@ type SessionStore struct {
 	sessions  map[string]session
 	tokenHash [32]byte
 	ttl       time.Duration
+	audit     AuditRecorder
 }
 
 func NewSessionStore(bootstrapToken string) (*SessionStore, error) {
@@ -39,6 +43,19 @@ func NewSessionStore(bootstrapToken string) (*SessionStore, error) {
 		tokenHash: sha256.Sum256([]byte(bootstrapToken)),
 		ttl:       8 * time.Hour,
 	}, nil
+}
+
+func (s *SessionStore) SetAuditRecorder(recorder AuditRecorder) {
+	s.audit = recorder
+}
+
+func (s *SessionStore) recordAudit(actor, action, outcome, method, path string, status int) {
+	if s.audit == nil {
+		return
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	_ = s.audit(ctx, actor, action, outcome, method, path, status)
 }
 
 func randomToken() (string, error) {
@@ -53,6 +70,7 @@ func (s *SessionStore) HandleSession(w http.ResponseWriter, r *http.Request) {
 	switch r.Method {
 	case http.MethodPost:
 		if !sameOrigin(r) {
+			s.recordAudit("anonymous", "auth.login", "failure", r.Method, r.URL.Path, http.StatusForbidden)
 			jsonResponse(w, http.StatusForbidden, map[string]string{"error": "origin rejected"})
 			return
 		}
@@ -65,6 +83,7 @@ func (s *SessionStore) HandleSession(w http.ResponseWriter, r *http.Request) {
 		}
 		candidate := sha256.Sum256([]byte(credentials.Token))
 		if subtle.ConstantTimeCompare(candidate[:], s.tokenHash[:]) != 1 {
+			s.recordAudit("anonymous", "auth.login", "failure", r.Method, r.URL.Path, http.StatusUnauthorized)
 			time.Sleep(250 * time.Millisecond)
 			jsonResponse(w, http.StatusUnauthorized, map[string]string{"error": "invalid credentials"})
 			return
@@ -81,8 +100,9 @@ func (s *SessionStore) HandleSession(w http.ResponseWriter, r *http.Request) {
 		}
 		expires := time.Now().Add(s.ttl)
 		s.mu.Lock()
-		s.sessions[id] = session{CSRF: csrf, ExpiresAt: expires}
+		s.sessions[id] = session{CSRF: csrf, Actor: "bootstrap-admin", ExpiresAt: expires}
 		s.mu.Unlock()
+		s.recordAudit("bootstrap-admin", "auth.login", "success", r.Method, r.URL.Path, http.StatusOK)
 		http.SetCookie(w, &http.Cookie{
 			Name: cookieName(r), Value: id, Path: "/", HttpOnly: true,
 			Secure: isHTTPS(r), SameSite: http.SameSiteStrictMode,
@@ -100,6 +120,11 @@ func (s *SessionStore) HandleSession(w http.ResponseWriter, r *http.Request) {
 		sess, ok := s.current(r)
 		provided := r.Header.Get("X-CSRF-Token")
 		if !ok || !sameOrigin(r) || subtle.ConstantTimeCompare([]byte(provided), []byte(sess.CSRF)) != 1 {
+			actor := "anonymous"
+			if ok {
+				actor = sess.Actor
+			}
+			s.recordAudit(actor, "auth.logout", "failure", r.Method, r.URL.Path, http.StatusForbidden)
 			jsonResponse(w, http.StatusForbidden, map[string]string{"error": "request verification failed"})
 			return
 		}
@@ -109,6 +134,7 @@ func (s *SessionStore) HandleSession(w http.ResponseWriter, r *http.Request) {
 			delete(s.sessions, cookie.Value)
 			s.mu.Unlock()
 		}
+		s.recordAudit(sess.Actor, "auth.logout", "success", r.Method, r.URL.Path, http.StatusNoContent)
 		http.SetCookie(w, &http.Cookie{Name: cookieName(r), Value: "", Path: "/", HttpOnly: true, Secure: isHTTPS(r), SameSite: http.SameSiteStrictMode, MaxAge: -1})
 		w.WriteHeader(http.StatusNoContent)
 	default:
@@ -121,12 +147,14 @@ func (s *SessionStore) Authenticate(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		sess, ok := s.current(r)
 		if !ok {
+			s.recordAudit("anonymous", "auth.request", "failure", r.Method, r.URL.Path, http.StatusUnauthorized)
 			jsonResponse(w, http.StatusUnauthorized, map[string]string{"error": "authentication required"})
 			return
 		}
 		if r.Method != http.MethodGet && r.Method != http.MethodHead && r.Method != http.MethodOptions {
 			provided := r.Header.Get("X-CSRF-Token")
 			if !sameOrigin(r) || subtle.ConstantTimeCompare([]byte(provided), []byte(sess.CSRF)) != 1 {
+				s.recordAudit(sess.Actor, "auth.csrf_rejected", "failure", r.Method, r.URL.Path, http.StatusForbidden)
 				jsonResponse(w, http.StatusForbidden, map[string]string{"error": "request verification failed"})
 				return
 			}

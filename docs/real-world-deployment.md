@@ -106,9 +106,13 @@ Before operators use the system over a network:
   phishing-resistant MFA, account lifecycle, and centrally managed roles.
   The current bootstrap token is not organizational SSO or per-user RBAC.
 - Enforce access so only authorized operator workstations can reach the UI.
-- Configure audit events for authentication and administrative actions and
-  forward protected, immutable records to the SIEM. An application audit trail
-  is not yet implemented.
+- Forward authentication and administrative audit events to the SIEM. The
+  current application records metadata-only login/authentication and API
+  activity events in PostgreSQL and exposes them through an authenticated,
+  paginated endpoint. It still uses one shared bootstrap identity, and it does
+  not yet provide person-level attribution, before/after field diffs, SIEM
+  forwarding, retention controls, or tamper protection. These are required
+  before treating the log as a production audit system.
 - Use a read-only Grafana database account and keep Grafana private to the
   operations team if it is used.
 - Pin and scan images/dependencies, produce an SBOM, and document update and
@@ -177,11 +181,13 @@ Expand beyond the pilot only when all applicable checks pass:
 
 The repository status and roadmap identify several capabilities that affect
 real-world operations: inventory-driven SNMP polling and credential profiles,
-connectivity preflight, application audit trail, identity-provider login,
-notification delivery, SNMP trap/syslog ingestion, and production scale
-validation are incomplete or not implemented. Do not assume the presence of
-these features based on the UI or architecture diagrams. Decide whether each
-is required for the deployment and implement/validate it before relying on it.
+connectivity preflight, full audit controls (person-level attribution,
+before/after changes, SIEM forwarding, retention and tamper protection),
+identity-provider login, notification delivery, SNMP trap/syslog ingestion,
+and production scale validation are incomplete or not implemented. Do not
+assume the presence of these features based on the UI or architecture diagrams.
+Decide whether each is required for the deployment and implement/validate it
+before relying on it.
 
 ## 8. Operations after rollout
 

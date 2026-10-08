@@ -63,9 +63,9 @@ type columnSpec struct {
 
 // tableSpec describes the desired state of a single table and its critical columns.
 type tableSpec struct {
-	name       string
-	createDDL  string       // Full CREATE TABLE IF NOT EXISTS statement
-	columns    []columnSpec // Columns to inspect/patch after creation
+	name      string
+	createDDL string       // Full CREATE TABLE IF NOT EXISTS statement
+	columns   []columnSpec // Columns to inspect/patch after creation
 }
 
 // schema is the canonical desired state. Add entries here as the application evolves.

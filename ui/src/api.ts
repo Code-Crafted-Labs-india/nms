@@ -14,6 +14,11 @@ export type InventoryDevice = {
 }
 export type InventoryResponse = { devices: InventoryDevice[]; total: number; page: number; pageSize: number; totalPages: number }
 export type DeviceModel = { series: string; modelName: string }
+export type AuditEvent = {
+  id: number; occurred_at: string; actor: string; action: string
+  outcome: 'success'|'failure'; method: string; path: string; status_code: number
+}
+export type AuditResponse = { events: AuditEvent[]; page: number; page_size: number }
 export type DevicePayload = {
   hostname: string; ip_address: string; device_type: string; location: string
   snmp_community: string; snmp_version: string; is_monitored: boolean
@@ -68,4 +73,5 @@ export const dashboardApi = {
   deleteDevice(id:number) { return request<void>(`/api/devices/${id}`, { method:'DELETE' }) },
   deviceDetail(id: number) { return request<DeviceDetail>(`/api/v1/devices/${id}`) },
   resolveAlarm(id: number) { return request<void>(`/api/v1/alarms/${id}/resolve`, { method: 'POST' }) },
+  audit(page = 1, pageSize = 50) { return request<AuditResponse>(`/api/v1/audit?page=${page}&page_size=${pageSize}`) },
 }

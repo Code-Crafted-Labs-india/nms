@@ -89,7 +89,7 @@ Based on [`docs/product-future-scope.md`](docs/product-future-scope.md):
 | Device overview tab | P0 | ✅ Done | `GET /api/v1/devices/{id}` — identity, reachability, CPU/mem, alarm count. |
 | Device interfaces tab | P0 | ✅ Done | Returns per-interface oper/admin/speed/rx/tx/errors/optical in device detail response. |
 | Device events/alarms tab | P0 | ✅ Done | Returns last 50 alarms (resolved + open) per device. Manual resolve via `POST /api/v1/alarms/{id}/resolve`. |
-| Audit trail for device administration | P0 | 🔴 Not started | Audit log table and middleware not yet implemented. |
+| Audit trail for device administration | P0 | 🟡 Partial | Metadata-only login/authentication and API activity events are stored in `audit_events`; authenticated operators can read paginated events at `GET /api/v1/audit`. Shared bootstrap authentication means events identify only `bootstrap-admin`, not a person. Field-level before/after diffs, SIEM forwarding, retention controls, and tamper protection remain pending. |
 | Canonical device/interface telemetry normalization | P0 | 🟡 Partial | Telegraf → TimescaleDB raw. Go discovery normalizes devices. Interface join in alarm queries exists but not fully canonical. |
 | Inventory-driven ICMP and SNMP polling | P0 | 🟡 Partial | ICMP sweeps are inventory-driven (`ping` pkg). SNMP still Telegraf-static config. |
 | Stateful alarm schema with fingerprints, transitions, auto-recovery | P0 | 🟡 Partial | `resolved`/`resolved_at` lifecycle exists. All 6 strategies now auto-clear on recovery with hysteresis. Deterministic fingerprints (stable alarm code per device+resource) not yet enforced — duplicate prevention via read-before-write only. |
