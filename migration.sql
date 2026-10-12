@@ -68,10 +68,13 @@ CREATE TABLE IF NOT EXISTS interface_performance_metrics (
     "ifIndex" BIGINT,
     "ifDescr" TEXT,
     "ifSpeed" BIGINT,
+    "ifHighSpeed" BIGINT,
     "ifOperStatus" BIGINT,
     "ifAdminStatus" BIGINT,
     "ifInOctets" BIGINT,
+    "ifHCInOctets" NUMERIC,
     "ifOutOctets" BIGINT,
+    "ifHCOutOctets" NUMERIC,
     "ifInErrors" BIGINT,
     "ifOutErrors" BIGINT,
     "ifInDiscards" BIGINT,
@@ -84,8 +87,11 @@ ALTER TABLE interface_performance_metrics
     ADD COLUMN IF NOT EXISTS "ifIndex" BIGINT,
     ADD COLUMN IF NOT EXISTS "ifDescr" TEXT,
     ADD COLUMN IF NOT EXISTS "ifSpeed" BIGINT,
+    ADD COLUMN IF NOT EXISTS "ifHighSpeed" BIGINT,
     ADD COLUMN IF NOT EXISTS "ifInOctets" BIGINT,
+    ADD COLUMN IF NOT EXISTS "ifHCInOctets" NUMERIC,
     ADD COLUMN IF NOT EXISTS "ifOutOctets" BIGINT,
+    ADD COLUMN IF NOT EXISTS "ifHCOutOctets" NUMERIC,
     ADD COLUMN IF NOT EXISTS "ifInErrors" BIGINT,
     ADD COLUMN IF NOT EXISTS "ifOutErrors" BIGINT,
     ADD COLUMN IF NOT EXISTS "ifInDiscards" BIGINT,
@@ -191,6 +197,8 @@ CREATE INDEX IF NOT EXISTS idx_device_health_device_time
     ON device_health_metrics (device_id, time DESC);
 CREATE INDEX IF NOT EXISTS idx_interface_perf_interface_time
     ON interface_performance_metrics (interface_id, time DESC);
+CREATE INDEX IF NOT EXISTS idx_interface_raw_target_index_time
+    ON interface_performance_metrics (agent_host, "ifIndex", time DESC);
 CREATE INDEX IF NOT EXISTS idx_snmp_health_agent_time
     ON snmp_device_health (agent_host, time DESC);
 CREATE INDEX IF NOT EXISTS idx_network_events_open

@@ -79,7 +79,7 @@ func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 
-	// Launch self-healing schema synchronization before any engine loop starts
+	// Apply the selected startup schema repairs before starting worker loops.
 	if err := db.RunMigrations(ctx, database, logger); err != nil {
 		logger.Error("Failed to migrate database", "error", err)
 		os.Exit(1)
@@ -132,9 +132,8 @@ func main() {
 	mux.Handle("POST /api/v1/alarms/{id}/resolve", audited("alarms.resolve", handlers.ResolveAlarmHandler(database)))
 	mux.Handle("GET /api/v1/audit", audited("audit.read", handlers.AuditEventsHandler(database)))
 
-	// Binding to :8080 (all interfaces) is required when Grafana runs in a
-	// separate Docker container — binding to 127.0.0.1 would be unreachable
-	// from any other container on the Docker network.
+	// Listen on the container interface so the UI proxy and other attached
+	// services can reach the API. Compose does not publish this port to the host.
 	httpServer := &http.Server{
 		Addr:              ":8080",
 		Handler:           handlers.SecurityHeaders(mux),
@@ -151,7 +150,7 @@ func main() {
 		}
 	}()
 
-	app.logger.Info("NMS Backend Middleware is fully operational. Press Ctrl+C to terminate.")
+	app.logger.Info("NMS middleware is running. Press Ctrl+C to terminate.")
 
 	// 3. Block the main thread right here until an OS signal cancels the context
 	<-ctx.Done()

@@ -235,14 +235,29 @@ function AlarmRow({ alarm, onResolve }: { alarm: DeviceAlarm; onResolve: (id: nu
 function InterfaceRow({ iface }: { iface: DeviceInterface }) {
   const operColor = iface.operStatus === 1 ? 'text-emerald-400' : 'text-rose-400'
   const speedStr = iface.speedBps ? (iface.speedBps >= 1e9 ? `${(iface.speedBps/1e9).toFixed(0)}G` : `${(iface.speedBps/1e6).toFixed(0)}M`) : '—'
+  const traffic = (rate: number|null, utilization: number|null) => {
+    const width = utilization == null ? 0 : Math.min(100, Math.max(0, utilization))
+    return <div className="min-w-28">
+      <div className="text-slate-300">{formatRate(rate)}{utilization != null && <span className="ml-1 text-slate-500">{utilization.toFixed(1)}%</span>}</div>
+      <div className="mt-1 h-1 overflow-hidden rounded bg-white/8"><div className="h-full rounded bg-emerald-400" style={{width:`${width}%`}}/></div>
+    </div>
+  }
   return <tr className="border-t border-white/[.05] text-xs">
     <td className="py-2 pr-3 font-mono text-slate-300">{iface.ifDescr}</td>
     <td><span className={operColor}>{iface.operStatus === 1 ? 'UP' : iface.operStatus === 2 ? 'DOWN' : '?'}</span></td>
     <td className="text-slate-500">{speedStr}</td>
-    <td className="text-slate-500">{iface.rxBytesDelta != null ? `${(iface.rxBytesDelta/1024).toFixed(0)} KB` : '—'}</td>
-    <td className="text-slate-500">{iface.txBytesDelta != null ? `${(iface.txBytesDelta/1024).toFixed(0)} KB` : '—'}</td>
+    <td>{traffic(iface.rxBps, iface.rxUtilizationPct)}</td>
+    <td>{traffic(iface.txBps, iface.txUtilizationPct)}</td>
     <td className="text-rose-400/80">{(iface.rxErrors ?? 0) + (iface.txErrors ?? 0) > 0 ? (iface.rxErrors ?? 0) + (iface.txErrors ?? 0) : '—'}</td>
   </tr>
+}
+
+function formatRate(value: number|null) {
+  if (value == null || !Number.isFinite(value) || value < 0) return '—'
+  if (value >= 1e9) return `${(value/1e9).toFixed(2)} Gbps`
+  if (value >= 1e6) return `${(value/1e6).toFixed(2)} Mbps`
+  if (value >= 1e3) return `${(value/1e3).toFixed(1)} Kbps`
+  return `${value.toFixed(0)} bps`
 }
 
 function DeviceDetailPanel({ deviceId, onClose }: { deviceId: number; onClose: () => void }) {
@@ -341,7 +356,7 @@ function DeviceDetailPanel({ deviceId, onClose }: { deviceId: number; onClose: (
               <div className="overflow-x-auto">
                 <table className="w-full min-w-[500px] text-left">
                   <thead className="text-[10px] uppercase tracking-wider text-slate-600">
-                    <tr><th className="pb-2 pr-3">Interface</th><th className="pb-2">State</th><th className="pb-2">Speed</th><th className="pb-2">RX</th><th className="pb-2">TX</th><th className="pb-2">Errors</th></tr>
+                    <tr><th className="pb-2 pr-3">Interface</th><th className="pb-2">State</th><th className="pb-2">Capacity</th><th className="pb-2">Receive rate / use</th><th className="pb-2">Transmit rate / use</th><th className="pb-2">Errors</th></tr>
                   </thead>
                   <tbody>{detail.interfaces.map(iface => <InterfaceRow key={iface.id} iface={iface}/>)}</tbody>
                 </table>

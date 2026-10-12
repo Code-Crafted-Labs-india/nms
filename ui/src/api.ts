@@ -30,6 +30,8 @@ export type DeviceAlarm = {
 }
 export type DeviceInterface = {
   id: number; ifIndex: number; ifDescr: string; speedBps: number|null
+  rxBps: number|null; txBps: number|null
+  rxUtilizationPct: number|null; txUtilizationPct: number|null
   operStatus: number; adminStatus: number
   rxBytesDelta: number|null; txBytesDelta: number|null
   rxErrors: number|null; txErrors: number|null; rxDiscards: number|null; txDiscards: number|null

@@ -1,38 +1,51 @@
 # 📑 PROJECT_STATUS.md
 
-> Last updated: 2026-10-01. Scope source: [`docs/product-future-scope.md`](docs/product-future-scope.md)
+> Last updated: 2026-10-12. Scope source: [`docs/product-future-scope.md`](docs/product-future-scope.md)
+>
+> Architecture documentation: [`docs/architecture.md`](docs/architecture.md) is
+> the code-aligned description of current runtime behavior and is the place to
+> start when learning the system or changing code. The tables below are a
+> project status/roadmap snapshot; they are not a substitute for checking the
+> implementation. In particular, “schema exists” does not mean a running
+> writer populates a table or column.
 
 ---
 
-## 1. 🚀 System Architecture Overview
+## 1. System architecture overview
 
-The NMS ecosystem ("NetPulse Core") is wired together as a decoupled, multi-tier data pipeline designed to prevent blocking bottlenecks, guarantee processing throughput, and safely scale.
+The current Compose demo has Telegraf poll statically configured targets and
+write telemetry to TimescaleDB. A Go process reads inventory to run ICMP,
+discovers IPs from recent SNMP interface telemetry, syncs LLDP graph edges,
+evaluates six alarm strategies, and serves the REST API. The React application
+calls that API through the Nginx container. Grafana is a separate engineering
+aid. The Compose stack's mock devices and static Telegraf target list are demo
+configuration; inventory CRUD does not configure Telegraf.
 
-The data flows through 4 distinct layers:
-`Simulated Hardware (SNMPd Alpine Containers) ──> Ingestion Agent (Telegraf) ──> Storage Layer (TimescaleDB/PostgreSQL) ──> Processing Middleware (Go Backend) ──> Presentation Layer (React Command Center)`.
-
-1. **Simulated Hardware**: Containerized network endpoints exposing SNMP and responding to ICMP.
-2. **Ingestion Agent**: Telegraf polls SNMP metrics from the devices and dumps raw telemetry directly into TimescaleDB.
-3. **Storage Layer**: PostgreSQL equipped with TimescaleDB extension maintains strict relational inventory while ingesting high-velocity time-series metrics into hypertables.
-4. **Processing Middleware**: A concurrent Go backend executes high-speed ICMP sweeps, processes raw telemetry into actionable relational graphs (LLDP topology), provisions unmanaged devices (Auto-Discovery), evaluates 6 alarm strategies, and exposes a REST API for management.
-5. **Presentation Layer**: The secured Go API supplies the Bun/React command center with fleet health, time-series, alarm, inventory, topology, and device-detail data. The UI now includes "Code Crafted Labs" branding. Grafana remains an optional loopback-only engineering aid.
+See [`docs/architecture.md`](docs/architecture.md) for service networks,
+startup sequence, actual data writers/readers, table semantics, API/auth flow,
+known implementation gaps, and a repository map for manual coding.
 
 ---
 
-## 2. 🗄️ Relational Database & Table Schema Map
+## 2. Relational database and table map
+
+This high-level table is a quick orientation only. The canonical DDL is
+[`migration.sql`](migration.sql); runtime schema repair is in [`db/db.go`](db/db.go).
+The detailed writer/consumer caveats are in
+[`docs/architecture.md`](docs/architecture.md#5-database-model-and-data-ownership).
 
 | Table | Type | Purpose | Primary/Foreign Keys & Connections |
 |---|---|---|---|
 | `devices` | Relational | Inventory catalog of managed elements. | `id` (PK). Connected to `network_topology`, `device_health_metrics`, and `interfaces`. |
 | `device_models` | Relational | Supported hardware SKU catalog. Gates AddDevice workflow. | `id` (PK), `UNIQUE(model_name)`. |
-| `interfaces` | Relational | Per-device interface index and descriptor. | `id` (PK), `device_id` (FK → devices). |
+| `interfaces` | Relational | Intended canonical per-device interface index and descriptor. | `id` (PK), `device_id` (FK → devices). Current discovery does not populate this automatically. |
 | `network_topology` | Relational | Graph adjacency list tracking source/target device physical connections. | `id` (PK), `source_device`, `target_device`. |
 | `network_events` | Hypertable | Alarm lifecycle store. Stores trigger, severity, resolution, and timestamps. | Partitioned by `time`. `device_id` (FK → devices). `alarm_id` maps to catalog below. |
 | `device_health_metrics` | Hypertable | TimescaleDB hypertable tracking node availability (ICMP) and core resource utilization (CPU/Mem). | Partitioned by `time`. Connected to `devices` via `device_id` (FK). |
-| `interface_performance_metrics` | Hypertable | TimescaleDB hypertable tracking port speeds, states, and bandwidth deltas. | Partitioned by `time`. Connected to `interfaces` via `interface_id` (FK). |
+| `interface_performance_metrics` | Hypertable | Raw IF-MIB samples plus columns reserved for normalized metrics. | Telegraf writes raw fields (`agent_host`, quoted `"ifIndex"`, counters); current Telegraf path does not fill `interface_id` or normalized deltas. |
 | `snmp_device_health` | Hypertable | Telegraf SNMP sink for system-level health (CPU idle, memory). Used by alarm rules #3 and #6. | Partitioned by `time`. Written by Telegraf. |
 | `snmp` | Raw Telemetry | Telegraf SNMP sink for standard MIB-II system polling. | Written purely by Telegraf. |
-| `snmp_interface` | Raw Telemetry | Telegraf SNMP sink for interface metrics. Scanned by Go `discovery` engine. | Written purely by Telegraf. |
+| `snmp_interface` | Raw Telemetry | Generic SNMP interface table used by Go discovery. | Telegraf writes it only if configured; current IF-MIB table is instead named `interface_performance_metrics`. |
 | `snmp_lldp_topology` | Raw Telemetry | Telegraf SNMP sink for `LLDP-MIB::lldpRemTable`. Scanned by Go `topology` engine. | Written purely by Telegraf. |
 
 ### Alarm ID Catalog
@@ -52,16 +65,16 @@ The data flows through 4 distinct layers:
 
 | Package / Component | Responsibility | Current State |
 |---|---|---|
-| `db/` | Database connection pooling (`pgx`/`pgxpool`) + self-healing schema migration engine. | ✅ Stable |
-| `topology/` | Layer 2 live graph sync worker. Scans `snmp_lldp_topology` → writes `network_topology`. | ✅ Stable |
-| `discovery/` | Automated asset scanner. Provisions unknown devices from `snmp_interface` into `devices`. | ✅ Stable |
-| `ping/` | High-speed concurrent ICMP sweep engine. Writes `device_health_metrics`. | ✅ Stable |
-| `alert/` | Alarm evaluation engine: worker pool dispatches 6 strategies against all monitored devices every 30s. All strategies now support **auto-clear on recovery** with hysteresis. | ✅ Stable |
-| `handlers/dashboard.go` | `GET /api/v1/dashboard` — overview, devices, events, metrics, topology. | ✅ Stable |
+| `db/` | PostgreSQL connection pool and selected idempotent startup schema repairs. | ✅ Implemented; not a versioned migration system |
+| `topology/` | Reads recent LLDP rows and updates the current `network_topology` edge set. | ✅ Implemented; requires device LLDP support and matching |
+| `discovery/` | Inserts generic inventory records for unknown `agent_host` values in `snmp_interface`. Current Telegraf config writes its IF-MIB table to `interface_performance_metrics`, so this scanner's input is not populated by the checked-in config. | ⚠️ Requires wiring |
+| `ping/` | Concurrent inventory-driven ICMP sweeps; writes device-linked `device_health_metrics` rows. | ✅ Implemented; scale not characterized |
+| `alert/` | Worker pool dispatches 6 strategies against monitored devices every 30s. Strategies have recovery paths; CPU/memory thresholds use a five-point clear margin. Some inputs are not written by current Telegraf config. | 🟡 Partial |
+| `handlers/dashboard.go` | `GET /api/v1/dashboard` — overview, devices, events, metrics, topology. | ✅ Implemented |
 | `handlers/devices.go` | `POST/PUT/DELETE /api/devices` — device CRUD. Updated to include location metadata and proper Cisco NCS 540 catalog validation. | ✅ Updated |
 | `handlers/inventory.go` | `GET /api/v1/devices` — paginated/filtered fleet inventory. `GET /api/v1/devices/{id}` — full device detail. `POST /api/v1/alarms/{id}/resolve` — manual alarm resolution. | ✅ New (2026-10-01) |
-| `handlers/security.go` | Session auth, CSRF, CORS, RBAC middleware. | ✅ Stable |
-| `main.go` | Orchestration: bootstraps DB, background workers, alarm engine (6 strategies), and REST API mux. | ✅ Stable |
+| `handlers/security.go` | Shared bootstrap-token session auth, CSRF, same-origin checks, and security headers. Per-user RBAC is not implemented. | ✅ Implemented baseline |
+| `main.go` | Orchestration: bootstraps DB, background workers, alarm engine (6 strategies), and REST API mux. | ✅ Implemented |
 
 ---
 
@@ -92,20 +105,20 @@ Based on [`docs/product-future-scope.md`](docs/product-future-scope.md):
 | Audit trail for device administration | P0 | 🟡 Partial | Metadata-only login/authentication and API activity events are stored in `audit_events`; authenticated operators can read paginated events at `GET /api/v1/audit`. Shared bootstrap authentication means events identify only `bootstrap-admin`, not a person. Field-level before/after diffs, SIEM forwarding, retention controls, and tamper protection remain pending. |
 | Canonical device/interface telemetry normalization | P0 | 🟡 Partial | Telegraf → TimescaleDB raw. Go discovery normalizes devices. Interface join in alarm queries exists but not fully canonical. |
 | Inventory-driven ICMP and SNMP polling | P0 | 🟡 Partial | ICMP sweeps are inventory-driven (`ping` pkg). SNMP still Telegraf-static config. |
-| Stateful alarm schema with fingerprints, transitions, auto-recovery | P0 | 🟡 Partial | `resolved`/`resolved_at` lifecycle exists. All 6 strategies now auto-clear on recovery with hysteresis. Deterministic fingerprints (stable alarm code per device+resource) not yet enforced — duplicate prevention via read-before-write only. |
-| Device-down alarm (P0 #1) | P0 | ✅ Done | `DeviceDownStrategy` — consecutive ICMP failures, telemetry-silence suppression, auto-clear. |
-| Interface-down alarm (P0 #2) | P0 | ✅ Done | `LinkStateStrategy` — oper=DOWN with admin=UP guard, auto-clear on recovery. |
+| Stateful alarm schema with fingerprints, transitions, auto-recovery | P0 | 🟡 Partial | `resolved`/`resolved_at` lifecycle and recovery paths exist. Only CPU/memory use a threshold clear margin. Deterministic fingerprints are not enforced; deduplication uses read-before-write. Fresh-schema alarm row IDs also need reconciliation. |
+| Device-down alarm (P0 #1) | P0 | ✅ Done | `DeviceDownStrategy` checks all linked ICMP samples in a fixed one-minute window; any success clears the event and an empty window does not alarm. |
+| Interface-down alarm (P0 #2) | P0 | 🟡 Partial | `LinkStateStrategy` checks normalized rows joined through `interfaces`; checked-in Telegraf writes raw rows without this relationship. |
 | High memory usage alarm (P0 #3) | P0 | ✅ Done | `HighMemoryUtilizationStrategy` — warning=80%, critical=95%, hysteresis, auto-clear. |
 | SNMP communication failure alarm (P0 #4) | P0 | ✅ Done | `SNMPCommunicationFailureStrategy` — stale window=5min, checks `snmp_device_health` + `snmp_interface`, auto-clear. |
 | Device reachability monitoring (P0 #5) | P0 | ✅ Done | `ping` package + `device_health_metrics` hypertable with ICMP status, RTT, packet loss. |
-| High CPU alarm (#3 CPU path) | P0 | ✅ Done | `HighCPUUtilizationStrategy` — threshold=85%, hysteresis at 80%, auto-clear. |
+| High CPU alarm (#3 CPU path) | P0 | 🟡 Partial | Strategy threshold=85%, clears at 80%; it reads `device_health_metrics.cpu_utilization`, which current configured writers do not populate. |
 
 ### Release B — Operator Workflows
 
 | Scope Item | Priority | Status | Notes |
 |---|---|---|---|
 | Dashboard builder and widget catalog | P1 | 🔴 Not started | Fixed overview layout only; no drag-and-drop builder yet. |
-| Interface utilization (P1 #6) | P1 | 🟡 Partial | `rx_bytes_delta`/`tx_bytes_delta` captured. UI shows deltas; rate calculation from elapsed time not yet exposed as utilization %. |
+| Interface utilization (P1 #6) | P1 | 🟡 Partial | Telegraf now polls IF-MIB 64-bit counters and high-speed capacity where supported. Device detail calculates live receive/transmit rates from two recent samples, detects 32-bit wrap and counter resets, and shows utilization meters when capacity is known. Historical utilization graphs and vendor/device validation remain pending. |
 | CRC/error monitoring (P1 #7) | P1 | 🟡 Partial | Error and discard columns captured in DB; graphing and alarm rule not yet implemented. |
 | Optical/SFP monitoring (P1 #8) | P1 | 🟡 Partial | `optical_rx_dbm`/`optical_tx_dbm` columns exist and surface in device detail; alarm rule not yet written. |
 | Alarm acknowledgement and suppression lifecycle | P1 | 🟡 Partial | Manual resolve implemented. Acknowledgement, assignment, suppression, and maintenance window not yet. |
@@ -142,9 +155,11 @@ Based on [`docs/product-future-scope.md`](docs/product-future-scope.md):
 | `GET` | `/api/session` | None | Validate existing session and refresh CSRF token |
 | `DELETE` | `/api/session` | Session | Terminate session |
 | `GET` | `/api/v1/dashboard` | Session | Full dashboard payload (overview, devices, events, metrics, topology) |
+| `GET` | `/api/v1/device-models` | Session | Supported device model catalog |
 | `GET` | `/api/v1/devices` | Session | Paginated fleet inventory (`page`, `page_size`, `q`, `status`, `type`) |
 | `GET` | `/api/v1/devices/{id}` | Session | Full device detail (identity, reachability, resource, interfaces, alarms) |
 | `POST` | `/api/v1/alarms/{id}/resolve` | Session | Manually resolve an open alarm instance |
+| `GET` | `/api/v1/audit` | Session | Paginated metadata-only authentication and API activity |
 | `POST` | `/api/devices` | Session | Add a new managed device |
 | `PUT` | `/api/devices/{id}` | Session | Edit device metadata |
 | `DELETE` | `/api/devices/{id}` | Session | Delete device and associated topology edges |
@@ -173,42 +188,36 @@ Based on [`docs/product-future-scope.md`](docs/product-future-scope.md):
 
 ---
 
-## 🐛 8. Known Constraints, Discovered Caveats & Potential Bugs
+## 8. Known implementation constraints
 
 ### The Identifier/Naming Mismatch Warning
-If Telegraf writes a bare IP address to `agent_host` in the telemetry tables, but our Go topology package relies on writing raw string hostnames into `network_topology`, the Grafana Node Graph rendering engine will break. The Node Graph **requires absolute character string matching** between `Edges.source`/`Edges.target` and `Nodes.id`. We must ensure hostnames are cleanly resolved and identically mapped across all pipelines.
+Topology/API constraint: `network_topology` edges use resolved hostnames where possible; the React UI consumes those values as graph node identifiers. LLDP names that cannot be matched to inventory can produce inconsistent identifiers or be skipped. The current resolver and its limits are described in [`docs/architecture.md`](docs/architecture.md#4-telemetry-pipeline).
 
-### The Overwrite Trap
-Specifying a `command:` block in `docker-compose.yml` completely suppresses the native `CMD` string instructed inside `Dockerfile.snmpd`. Because Alpine Linux behaves uniquely with the net-snmp daemon, we must explicitly include the runtime flags `-I -smux,mteTrigger,mteTriggerConf` in our `docker-compose.yml` command arrays to keep the bare Alpine daemons alive without crashing natively on boot.
+### Interface state alarms depend on normalized rows
+`LinkStateStrategy` and `AdminOperMismatchStrategy` join
+`interface_performance_metrics.interface_id` to `interfaces.id`. Telegraf's
+current raw IF-MIB rows do not provide that foreign key, and discovery does not
+populate `interfaces`. See [architecture.md](docs/architecture.md).
 
-### Database Deadlocks
-Concurrent writes executing continuously from the topology sync loop (`network_topology`) and the auto-discovery loops (`devices`) can cause locking contentions or race conditions at the database layer. We successfully mitigate this by aggressively enforcing `ON CONFLICT DO NOTHING` statements in our PostgreSQL `INSERT` logic and delegating deduplication constraints directly to the database engine.
+### CPU alarm input is not currently populated
+The high-CPU strategy reads `device_health_metrics.cpu_utilization`, but the
+checked-in Telegraf health track writes CPU fields to `snmp_device_health` and
+the Go ping worker writes no CPU metric. The high-CPU alarm needs an explicit
+writer/mapping before it can evaluate real telemetry.
 
-### Alarm Deduplication (Scope Gap)
-Current alarm deduplication uses a read-before-write pattern rather than a deterministic fingerprint enforced by a database UNIQUE constraint. This means concurrent alarm workers could theoretically race and insert duplicate active instances. The scope requires a stable alarm fingerprint (alarm_code + device_id + resource_id) enforced at the DB layer — not yet implemented.
+### Alarm deduplication is not database-enforced
+Strategies query for an open event before inserting another. The database has
+no unique active-alarm fingerprint, so concurrent evaluations could create
+duplicates.
 
-### SNMP Failure False-Positives
-`SNMPCommunicationFailureStrategy` joins `snmp_device_health` on `ip_address = agent_host::inet`. If a device's `agent_host` in Telegraf output is a hostname string rather than an IP, this join will produce zero rows and fire a false SNMP failure alarm. Ensure Telegraf `agent_host` is consistently an IP address for all managed devices.
-
-### Alarm ID in Hypertable
-`network_events` is a TimescaleDB hypertable partitioned on `time`. TimescaleDB does not support SERIAL PKs on chunk-partitioned tables in the same way as regular tables — the `id` column used by `ResolveAlarmHandler` requires using `time + device_id` as a composite lookup or migrating to a non-hypertable if individual row addressing becomes critical at scale.
+### Alarm row identifier in a fresh database
+`migration.sql` defines `network_events` without an `id` column, while device-detail and manual-resolve handlers select/update alarm rows by `id`. The `db.RunMigrations` repair spec currently adds `resolved_at`, but does not add `id`. Confirm/fix this schema/API mismatch before relying on alarm detail or manual resolution in a newly initialized database. See [`docs/architecture.md`](docs/architecture.md#5-database-model-and-data-ownership).
 
 ---
 
-## 🎯 9. Next Implementation Priorities (aligned to scope)
+## 9. Future work
 
-### Immediate (unblock P0 completion)
-1. **Alarm fingerprint deduplication** — add `UNIQUE (alarm_id, device_id, resource_id)` partial index on `resolved=FALSE` rows to replace read-before-write anti-duplication.
-2. **Inventory-driven SNMP polling** — replace static Telegraf targets with inventory-driven target generation (poll profile per device).
-3. **Credential profile table** — separate `credential_profiles` table with envelope-encrypted secrets; reference by ID from `devices`.
-
-### Short-term (Release B)
-4. **Port utilization %** — derive bps and utilization % from `rx_bytes_delta`/`tx_bytes_delta` and `ifSpeed` in the device detail API.
-5. **CRC/error alarm rule** — implement `InterfaceErrorRateStrategy` using `rx_errors_delta` and `tx_errors_delta` with configurable rate threshold.
-6. **Notification adapter** — implement webhook delivery for CRITICAL alarms as the first notification channel.
-7. **SNMP trap receiver** — Go UDP/TCP trap listener for STP, loop, and storm events.
-
-### Medium-term (Release C)
-8. **Topology enhancements** — force-directed layout, site-scoped graph queries, impact highlighting.
-9. **Reports** — availability and SLA by device, site, and reporting period.
-10. **SSO/RBAC roles** — viewer, operator, engineer, auditor, administrator role enforcement.
+The full intended product scope and sequencing belong in
+[`docs/product-future-scope.md`](docs/product-future-scope.md). This status file
+records implementation state and known constraints; planned items there are
+not delivered capabilities.

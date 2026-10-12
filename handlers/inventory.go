@@ -12,26 +12,26 @@ import (
 
 // ============================================================================
 // INVENTORY HANDLER — GET /api/v1/devices
-// Server-paginated, filterable, sortable device fleet list.
-// Scope: §2 "Fleet inventory" (P0) — supports status, type, and text filters.
+// Returns a server-paginated device list with status, type, text, and monitored
+// filters. The status filter is applied after the database page is fetched.
 // ============================================================================
 
 type InventoryDevice struct {
-	ID            int      `json:"id"`
-	Hostname      string   `json:"hostname"`
-	IPAddress     string   `json:"ipAddress"`
-	DeviceType    string   `json:"deviceType"`
-	Location      string   `json:"location"`
-	IsMonitored   bool     `json:"isMonitored"`
-	SnmpVersion   string   `json:"snmpVersion"`
-	CreatedAt     string   `json:"createdAt"`
-	Status        string   `json:"status"`        // online | offline | unknown
-	RTTMs         *float64 `json:"rttMs"`
-	PacketLoss    *float64 `json:"packetLoss"`
-	OpenAlarms    int      `json:"openAlarms"`
-	LastPoll      *string  `json:"lastPoll"`
-	UpInterfaces  int      `json:"upInterfaces"`
-	DownInterfaces int     `json:"downInterfaces"`
+	ID             int      `json:"id"`
+	Hostname       string   `json:"hostname"`
+	IPAddress      string   `json:"ipAddress"`
+	DeviceType     string   `json:"deviceType"`
+	Location       string   `json:"location"`
+	IsMonitored    bool     `json:"isMonitored"`
+	SnmpVersion    string   `json:"snmpVersion"`
+	CreatedAt      string   `json:"createdAt"`
+	Status         string   `json:"status"` // online | offline | unknown
+	RTTMs          *float64 `json:"rttMs"`
+	PacketLoss     *float64 `json:"packetLoss"`
+	OpenAlarms     int      `json:"openAlarms"`
+	LastPoll       *string  `json:"lastPoll"`
+	UpInterfaces   int      `json:"upInterfaces"`
+	DownInterfaces int      `json:"downInterfaces"`
 }
 
 type InventoryResponse struct {
@@ -59,9 +59,9 @@ func InventoryHandler(database *db.DB) http.HandlerFunc {
 		offset := (page - 1) * pageSize
 
 		// --- Filters ---
-		statusFilter := q.Get("status")   // "online" | "offline" | "" (all)
-		typeFilter := q.Get("type")       // free-text device_type match
-		searchText := q.Get("q")          // hostname / IP free-text search
+		statusFilter := q.Get("status") // "online" | "offline" | "" (all)
+		typeFilter := q.Get("type")     // free-text device_type match
+		searchText := q.Get("q")        // hostname / IP free-text search
 		monitoredOnly := q.Get("monitored") != "false"
 
 		// Build dynamic WHERE clause.
@@ -187,35 +187,39 @@ func InventoryHandler(database *db.DB) http.HandlerFunc {
 
 // ============================================================================
 // DEVICE DETAIL HANDLER — GET /api/v1/devices/{id}
-// Returns full device diagnostics with Overview, Interfaces, Events tabs data.
-// Scope: §2 "Device detail page" (P0).
+// Returns device identity, latest health, recent alarm rows, and live interface
+// rates derived from the two latest raw IF-MIB samples per interface.
 // ============================================================================
 
 type DeviceInterface struct {
-	ID            int     `json:"id"`
-	IfIndex       int     `json:"ifIndex"`
-	IfDescr       string  `json:"ifDescr"`
-	Speed         *int64  `json:"speedBps"`
-	OperStatus    int     `json:"operStatus"`
-	AdminStatus   int     `json:"adminStatus"`
-	RxBytesDelta  *int64  `json:"rxBytesDelta"`
-	TxBytesDelta  *int64  `json:"txBytesDelta"`
-	RxErrors      *int64  `json:"rxErrors"`
-	TxErrors      *int64  `json:"txErrors"`
-	RxDiscards    *int64  `json:"rxDiscards"`
-	TxDiscards    *int64  `json:"txDiscards"`
-	OpticalRxDbm  *float64 `json:"opticalRxDbm"`
-	OpticalTxDbm  *float64 `json:"opticalTxDbm"`
-	LastSeen      *string  `json:"lastSeen"`
+	ID           int      `json:"id"`
+	IfIndex      int      `json:"ifIndex"`
+	IfDescr      string   `json:"ifDescr"`
+	Speed        *int64   `json:"speedBps"`
+	RxBps        *float64 `json:"rxBps"`
+	TxBps        *float64 `json:"txBps"`
+	RxUtilPct    *float64 `json:"rxUtilizationPct"`
+	TxUtilPct    *float64 `json:"txUtilizationPct"`
+	OperStatus   int      `json:"operStatus"`
+	AdminStatus  int      `json:"adminStatus"`
+	RxBytesDelta *int64   `json:"rxBytesDelta"`
+	TxBytesDelta *int64   `json:"txBytesDelta"`
+	RxErrors     *int64   `json:"rxErrors"`
+	TxErrors     *int64   `json:"txErrors"`
+	RxDiscards   *int64   `json:"rxDiscards"`
+	TxDiscards   *int64   `json:"txDiscards"`
+	OpticalRxDbm *float64 `json:"opticalRxDbm"`
+	OpticalTxDbm *float64 `json:"opticalTxDbm"`
+	LastSeen     *string  `json:"lastSeen"`
 }
 
 type DeviceAlarm struct {
-	ID        int    `json:"id"`
-	Time      string `json:"time"`
-	Severity  string `json:"severity"`
-	EventType string `json:"eventType"`
-	Message   string `json:"message"`
-	Resolved  bool   `json:"resolved"`
+	ID         int     `json:"id"`
+	Time       string  `json:"time"`
+	Severity   string  `json:"severity"`
+	EventType  string  `json:"eventType"`
+	Message    string  `json:"message"`
+	Resolved   bool    `json:"resolved"`
 	ResolvedAt *string `json:"resolvedAt"`
 }
 
@@ -231,10 +235,10 @@ type DeviceDetail struct {
 	CreatedAt   string `json:"createdAt"`
 
 	// Reachability
-	Status      string   `json:"status"`
-	RTTMs       *float64 `json:"rttMs"`
-	PacketLoss  *float64 `json:"packetLoss"`
-	LastPoll    *string  `json:"lastPoll"`
+	Status     string   `json:"status"`
+	RTTMs      *float64 `json:"rttMs"`
+	PacketLoss *float64 `json:"packetLoss"`
+	LastPoll   *string  `json:"lastPoll"`
 
 	// Resource summary (latest values)
 	CPUUtilization    *float64 `json:"cpuUtilization"`
@@ -331,38 +335,82 @@ func DeviceDetailHandler(database *db.DB) http.HandlerFunc {
 			detail.Alarms = []DeviceAlarm{}
 		}
 
-		// --- Interfaces (latest per interface) ---
+		// --- Interfaces and live utilization from the latest two SNMP samples ---
 		ifRows, err := database.Pool.Query(ctx, `
-			SELECT
-				i.id, i.if_index, i.if_descr, i.speed,
-				ipm.if_oper_status, ipm.if_admin_status,
-				ipm.rx_bytes_delta, ipm.tx_bytes_delta,
-				ipm.rx_errors_delta, ipm.tx_errors_delta,
-				ipm.rx_discards_delta, ipm.tx_discards_delta,
-				ipm.optical_rx_dbm, ipm.optical_tx_dbm,
-				to_char(ipm.time AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"')
-			FROM interfaces i
-			JOIN LATERAL (
-				SELECT * FROM interface_performance_metrics
-				WHERE interface_id = i.id
-				ORDER BY time DESC LIMIT 1
-			) ipm ON TRUE
-			WHERE i.device_id = $1
-			ORDER BY i.if_index
-		`, detail.ID)
+			WITH ranked AS (
+				SELECT time, "ifIndex"::INTEGER AS if_index,
+				       COALESCE(NULLIF("ifDescr", ''), 'if' || "ifIndex"::TEXT) AS if_descr,
+				       COALESCE(NULLIF("ifHighSpeed", 0)::BIGINT * 1000000, NULLIF("ifSpeed", 0)::BIGINT) AS speed_bps,
+				       COALESCE("ifOperStatus", 0)::INTEGER AS oper_status,
+				       COALESCE("ifAdminStatus", 0)::INTEGER AS admin_status,
+				       "ifHCInOctets" AS rx64, "ifHCOutOctets" AS tx64,
+				       "ifInOctets"::NUMERIC AS rx32, "ifOutOctets"::NUMERIC AS tx32,
+				       COALESCE("ifInErrors", 0)::BIGINT AS rx_errors,
+				       COALESCE("ifOutErrors", 0)::BIGINT AS tx_errors,
+				       COALESCE("ifInDiscards", 0)::BIGINT AS rx_discards,
+				       COALESCE("ifOutDiscards", 0)::BIGINT AS tx_discards,
+				       optical_rx_dbm, optical_tx_dbm,
+				       ROW_NUMBER() OVER (PARTITION BY "ifIndex" ORDER BY time DESC) AS sample_rank
+				FROM interface_performance_metrics
+				WHERE agent_host = $1 AND "ifIndex" IS NOT NULL
+				  AND time >= NOW() - INTERVAL '5 minutes'
+			), paired AS (
+				SELECT curr.*, prev.time AS previous_time,
+				       prev.rx64 AS previous_rx64, prev.tx64 AS previous_tx64,
+				       prev.rx32 AS previous_rx32, prev.tx32 AS previous_tx32
+				FROM ranked curr
+				LEFT JOIN ranked prev ON prev.if_index = curr.if_index AND prev.sample_rank = 2
+				WHERE curr.sample_rank = 1
+			), deltas AS (
+				SELECT paired.*,
+				       EXTRACT(EPOCH FROM (time - previous_time)) AS elapsed_seconds,
+				       CASE
+				         WHEN previous_time IS NULL OR time <= previous_time THEN NULL
+				         WHEN rx64 IS NOT NULL AND previous_rx64 IS NOT NULL AND rx64 >= previous_rx64 THEN rx64 - previous_rx64
+				         WHEN rx64 IS NULL AND previous_rx64 IS NULL AND rx32 >= previous_rx32 THEN rx32 - previous_rx32
+				         WHEN rx64 IS NULL AND previous_rx64 IS NULL
+				              AND previous_rx32 >= 3865470566 AND rx32 <= 429496729 THEN 4294967296 - previous_rx32 + rx32
+				         ELSE NULL
+				       END AS rx_byte_delta,
+				       CASE
+				         WHEN previous_time IS NULL OR time <= previous_time THEN NULL
+				         WHEN tx64 IS NOT NULL AND previous_tx64 IS NOT NULL AND tx64 >= previous_tx64 THEN tx64 - previous_tx64
+				         WHEN tx64 IS NULL AND previous_tx64 IS NULL AND tx32 >= previous_tx32 THEN tx32 - previous_tx32
+				         WHEN tx64 IS NULL AND previous_tx64 IS NULL
+				              AND previous_tx32 >= 3865470566 AND tx32 <= 429496729 THEN 4294967296 - previous_tx32 + tx32
+				         ELSE NULL
+				       END AS tx_byte_delta
+				FROM paired
+			)
+			SELECT if_index, if_descr, speed_bps, oper_status, admin_status,
+			       rx_byte_delta::BIGINT, tx_byte_delta::BIGINT,
+			       CASE WHEN elapsed_seconds BETWEEN 1 AND 300 AND rx_byte_delta IS NOT NULL
+			            THEN (rx_byte_delta * 8 / elapsed_seconds)::DOUBLE PRECISION END AS rx_bps,
+			       CASE WHEN elapsed_seconds BETWEEN 1 AND 300 AND tx_byte_delta IS NOT NULL
+			            THEN (tx_byte_delta * 8 / elapsed_seconds)::DOUBLE PRECISION END AS tx_bps,
+			       CASE WHEN speed_bps > 0 AND elapsed_seconds BETWEEN 1 AND 300 AND rx_byte_delta IS NOT NULL
+			            THEN (100 * rx_byte_delta * 8 / elapsed_seconds / speed_bps)::DOUBLE PRECISION END AS rx_utilization,
+			       CASE WHEN speed_bps > 0 AND elapsed_seconds BETWEEN 1 AND 300 AND tx_byte_delta IS NOT NULL
+			            THEN (100 * tx_byte_delta * 8 / elapsed_seconds / speed_bps)::DOUBLE PRECISION END AS tx_utilization,
+			       rx_errors, tx_errors, rx_discards, tx_discards, optical_rx_dbm, optical_tx_dbm,
+			       to_char(time AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"')
+			FROM deltas ORDER BY if_index
+		`, detail.IPAddress)
 		if err == nil {
 			defer ifRows.Close()
 			for ifRows.Next() {
 				var iface DeviceInterface
 				if err := ifRows.Scan(
-					&iface.ID, &iface.IfIndex, &iface.IfDescr, &iface.Speed,
+					&iface.IfIndex, &iface.IfDescr, &iface.Speed,
 					&iface.OperStatus, &iface.AdminStatus,
 					&iface.RxBytesDelta, &iface.TxBytesDelta,
+					&iface.RxBps, &iface.TxBps, &iface.RxUtilPct, &iface.TxUtilPct,
 					&iface.RxErrors, &iface.TxErrors,
 					&iface.RxDiscards, &iface.TxDiscards,
 					&iface.OpticalRxDbm, &iface.OpticalTxDbm,
 					&iface.LastSeen,
 				); err == nil {
+					iface.ID = iface.IfIndex
 					detail.Interfaces = append(detail.Interfaces, iface)
 				}
 			}
@@ -377,7 +425,7 @@ func DeviceDetailHandler(database *db.DB) http.HandlerFunc {
 
 // ============================================================================
 // RESOLVE ALARM HANDLER — POST /api/v1/alarms/{id}/resolve
-// Manually resolves a specific alarm instance. Scope: §6 "Alarm lifecycle" (P1).
+// Manually resolves an alarm row by its database ID.
 // ============================================================================
 
 func ResolveAlarmHandler(database *db.DB) http.HandlerFunc {
@@ -412,5 +460,3 @@ func ResolveAlarmHandler(database *db.DB) http.HandlerFunc {
 		jsonResponse(w, http.StatusOK, map[string]string{"status": "resolved"})
 	}
 }
-
-

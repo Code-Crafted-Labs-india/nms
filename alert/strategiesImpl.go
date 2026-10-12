@@ -11,13 +11,9 @@ import (
 	"github.com/jackc/pgx/v5"
 )
 
-// ============================================================================
-// AUTO-CLEAR HELPER
-// Resolves all open alarm instances for a given device + alarmID when the
-// condition is no longer active. This satisfies the scope requirement:
-//   "A recovered condition is automatically resolved only after its configured
-//    recovery window; brief oscillation is recorded as flapping."
-// ============================================================================
+// clearAlarm resolves all open events for a device and alarm ID when the
+// caller's recovery check reports that the condition is clear. It does not
+// apply a separate recovery delay or record flapping.
 
 func clearAlarm(ctx context.Context, database *db.DB, logger *slog.Logger, deviceID, alarmID int, strategyName string) error {
 	tag, err := database.Pool.Exec(ctx, `
@@ -38,11 +34,9 @@ func clearAlarm(ctx context.Context, database *db.DB, logger *slog.Logger, devic
 	return nil
 }
 
-// ============================================================================
-// STRATEGY 1: DeviceDownStrategy (Scope Alarm #1 — P0)
-// Evaluates consecutive ICMP failures over a configurable window and clears
-// automatically after stable recovery.
-// ============================================================================
+// DeviceDownStrategy raises an event when every device-linked ICMP sample in
+// the preceding minute is down. Any successful sample clears the open event;
+// an empty sample window is treated as unknown and does not raise an event.
 
 type DeviceDownStrategy struct {
 	logger         *slog.Logger
@@ -68,7 +62,7 @@ func (d *DeviceDownStrategy) Evaluate(ctx context.Context, database *db.DB, devi
 		return err
 	}
 
-	// Telemetry silence — cannot distinguish device failure from collector failure; do not alarm.
+	// No samples means this strategy has no device-linked ICMP result to evaluate.
 	if count == 0 {
 		d.logger.Warn("DeviceDownStrategy: telemetry silence — no metrics in window", "device_id", deviceID)
 		return nil
@@ -104,11 +98,9 @@ func (d *DeviceDownStrategy) Evaluate(ctx context.Context, database *db.DB, devi
 	return nil
 }
 
-// ============================================================================
-// STRATEGY 2: LinkStateStrategy (Scope Alarm #2 — P0)
-// Tracks ifOperStatus transitions. Alarms when oper=DOWN; suppresses
-// administratively-down ports. Auto-clears when the interface recovers.
-// ============================================================================
+// LinkStateStrategy reads recent normalized interface rows. It creates a
+// warning for operationally down interfaces unless they are administratively
+// down, and resolves a matching event when the interface is up.
 
 type LinkStateStrategy struct {
 	logger *slog.Logger
@@ -162,7 +154,7 @@ func (s *LinkStateStrategy) Evaluate(ctx context.Context, database *db.DB, devic
 		// ifOperStatus=2 → DOWN. Suppress if administratively down (admin=2).
 		if ifOperStatus == 2 {
 			if ifAdminStatus == 2 {
-				// Port is intentionally shut — not an alarm condition per scope.
+				// Port is administratively down, so do not report a link-down event.
 				continue
 			}
 			var placeholder int
@@ -186,10 +178,9 @@ func (s *LinkStateStrategy) Evaluate(ctx context.Context, database *db.DB, devic
 	return nil
 }
 
-// ============================================================================
-// STRATEGY 3: AdminOperMismatchStrategy (Scope Alarm #19 related — P1)
-// Flags admin=UP / oper=DOWN configuration anomalies. Auto-clears on recovery.
-// ============================================================================
+// AdminOperMismatchStrategy warns when a recent normalized interface row is
+// administratively up but operationally down. It resolves a matching event
+// when both values are up.
 
 type AdminOperMismatchStrategy struct {
 	logger *slog.Logger
@@ -257,10 +248,9 @@ func (s *AdminOperMismatchStrategy) Evaluate(ctx context.Context, database *db.D
 	return nil
 }
 
-// ============================================================================
-// STRATEGY 4: HighCPUUtilizationStrategy (Scope Alarm #3 partial — P0)
-// Auto-clears when CPU drops below threshold with hysteresis margin.
-// ============================================================================
+// HighCPUUtilizationStrategy compares the two-minute average of
+// device_health_metrics.cpu_utilization with its configured threshold. It
+// clears an event at a threshold-minus-five-percent recovery point.
 
 type HighCPUUtilizationStrategy struct {
 	logger       *slog.Logger
@@ -309,11 +299,9 @@ func (s *HighCPUUtilizationStrategy) Evaluate(ctx context.Context, database *db.
 	return nil
 }
 
-// ============================================================================
-// STRATEGY 5: HighMemoryUtilizationStrategy (Scope Alarm #3 — P0)
-// Calculates memory utilization from snmp_device_health and applies
-// warning/critical thresholds, hysteresis, and automatic recovery.
-// ============================================================================
+// HighMemoryUtilizationStrategy derives memory utilization from recent
+// snmp_device_health samples and applies warning, critical, and recovery
+// thresholds.
 
 type HighMemoryUtilizationStrategy struct {
 	logger            *slog.Logger
@@ -387,12 +375,9 @@ func (s *HighMemoryUtilizationStrategy) Evaluate(ctx context.Context, database *
 	return nil
 }
 
-// ============================================================================
-// STRATEGY 6: SNMPCommunicationFailureStrategy (Scope Alarm #4 — P0)
-// Alarms when a monitored device has had no successful SNMP poll within the
-// policy window. Distinguishes no-data from collector failure per scope.
-// Auto-clears when SNMP data resumes arriving.
-// ============================================================================
+// SNMPCommunicationFailureStrategy creates an event when no recognized SNMP
+// telemetry row is found for a device during staleWindow. This check cannot
+// distinguish a device-side SNMP failure from a collector or ingestion outage.
 
 type SNMPCommunicationFailureStrategy struct {
 	logger        *slog.Logger

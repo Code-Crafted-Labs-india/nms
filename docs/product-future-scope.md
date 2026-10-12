@@ -6,13 +6,16 @@ This document converts the supplied NMS reference screens into product
 requirements for NetPulse. The references are used only to identify useful
 workflows and data; their visual design and implementation are not copied.
 
-The current release provides authenticated operations, inventory status,
-basic event display, ICMP reachability, performance trends, and LLDP topology.
-It also contains initial device-down, interface-state, admin/oper mismatch, and
-high-CPU evaluation code. These rules are not yet a complete production alarm
-system: live SNMP data still needs normalization, alarms do not automatically
-clear, and notification delivery is not implemented. The following scope turns
-that foundation into a complete operator-facing network management product.
+The current implementation provides a shared-token operator UI, inventory
+CRUD/list/detail APIs, ICMP reachability, raw SNMP ingestion, a basic LLDP
+topology path, six alarm strategies, and audit metadata. Some rules depend on
+normalized interface data that the checked-in Telegraf configuration does not
+write; the high-CPU strategy reads a column for which the current configured
+writers do not provide input. The implemented alarm rules can auto-resolve
+events, but do not implement a configurable recovery delay or flapping history.
+There is no notification delivery. See [architecture.md](architecture.md) for
+the detailed current-state data flow. Everything below describes intended
+future product behavior; it is not evidence that the capability is delivered.
 
 ## Priority overview
 

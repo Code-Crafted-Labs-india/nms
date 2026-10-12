@@ -4,19 +4,20 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
-// DB encapsulates our TimescaleDB connection pool worker
+// DB provides the application's PostgreSQL connection pool.
 type DB struct {
 	Pool   *pgxpool.Pool
 	logger *slog.Logger
 }
 
-// InitPool initializes an optimized connection pool
+// InitPool opens a connection pool and verifies database connectivity.
 func InitPool(connString string, logger *slog.Logger) (*DB, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
@@ -27,7 +28,7 @@ func InitPool(connString string, logger *slog.Logger) (*DB, error) {
 		return nil, fmt.Errorf("unable to parse connection string: %w", err)
 	}
 
-	// Optimize connection parameters for high-throughput network monitoring
+	// Bound pool size and connection lifetime for this service instance.
 	config.MaxConns = 25                      // Prevent overloading DB container
 	config.MinConns = 5                       // Keep cold standbys open
 	config.MaxConnLifetime = 30 * time.Minute // Cycle old connections
@@ -50,7 +51,7 @@ func InitPool(connString string, logger *slog.Logger) (*DB, error) {
 }
 
 // ============================================================================
-// SELF-HEALING SCHEMA SYNCHRONIZATION ENGINE
+// STARTUP SCHEMA SYNCHRONIZATION
 // ============================================================================
 
 // columnSpec describes the desired state of a single column.
@@ -68,8 +69,8 @@ type tableSpec struct {
 	columns   []columnSpec // Columns to inspect/patch after creation
 }
 
-// schema is the canonical desired state. Add entries here as the application evolves.
-// Each entry is validated against the live information_schema at startup.
+// schema lists selected tables and columns that RunMigrations checks or repairs
+// at startup. The complete fresh-database schema is defined in migration.sql.
 var schema = []tableSpec{
 	{
 		name: "network_topology",
@@ -93,29 +94,26 @@ var schema = []tableSpec{
 		},
 	},
 	{
-		// interface_performance_metrics is a hypertable written to by BOTH the Go
-		// service (relational FK path) and Telegraf (raw SNMP path with name_override).
-		// Telegraf cannot supply 'interface_id', so that NOT NULL constraint must be
-		// dropped to allow Telegraf rows to land successfully.
-		// Live inspection confirmed: agent_host, host, sysName, ifAdminStatus, ifOperStatus
-		// were added by Telegraf's name_override and are intentionally unmanaged here.
+		// Telegraf writes raw IF-MIB columns to this table. These declarations keep
+		// the interface reference nullable and ensure fields used by device detail
+		// exist. Telegraf-specific columns not listed here remain writer-managed.
 		name: "interface_performance_metrics",
 		columns: []columnSpec{
 			{name: "interface_id", dataType: "INT", allowNull: true},
+			{name: "ifHighSpeed", dataType: "BIGINT", allowNull: true},
+			{name: "ifHCInOctets", dataType: "NUMERIC", allowNull: true},
+			{name: "ifHCOutOctets", dataType: "NUMERIC", allowNull: true},
 		},
 	},
 	{
-		// device_health_metrics hypertable - device_id FK should remain nullable
-		// when the Telegraf ICMP plugin writes rows without a resolved device ID.
+		// Keep device_id nullable for telemetry rows that do not map to inventory.
 		name: "device_health_metrics",
 		columns: []columnSpec{
 			{name: "device_id", dataType: "INT", allowNull: true},
 		},
 	},
 	{
-		// snmp_lldp_topology is created dynamically by Telegraf. We ensure the
-		// columns our topology engine JOINs on exist with the right types.
-		// Live inspection confirmed: lldp_local_port_num is INTEGER (not TEXT) in production.
+		// Ensure the LLDP columns queried by topology sync have expected types.
 		name: "snmp_lldp_topology",
 		columns: []columnSpec{
 			{name: "index", dataType: "TEXT", allowNull: true},
@@ -127,10 +125,7 @@ var schema = []tableSpec{
 		},
 	},
 	{
-		// devices table cleanup: live inspection found two relic columns written
-		// by earlier broken migration passes:
-		//   - 'is_monitered' (typo duplicate of 'is_monitored') — SQLSTATE 42703 source
-		//   - 'device_id'    (self-referential FK that was never part of the design)
+		// Remove obsolete columns found in older local database schemas.
 		name: "devices",
 		columns: []columnSpec{
 			{name: "is_monitered", dataType: "BOOLEAN", allowNull: true, dropCol: true},
@@ -138,8 +133,7 @@ var schema = []tableSpec{
 		},
 	},
 	{
-		// device_models: new table cataloging supported hardware SKUs.
-		// Seeded from the deviceModelCatalog slice below — fully modular.
+		// Device model catalog used by the device management API.
 		name: "device_models",
 		createDDL: `CREATE TABLE IF NOT EXISTS device_models (
 			id         SERIAL PRIMARY KEY,
@@ -153,10 +147,7 @@ var schema = []tableSpec{
 		},
 	},
 	{
-		// network_events: alarm lifecycle store.
-		// TimescaleDB hypertables cannot have a SERIAL PK added after creation via
-		// ALTER TABLE, so we ensure the columns exist via the idempotent ADD COLUMN.
-		// The 'id' column is used by the manual alarm-resolve endpoint.
+		// Ensure the resolution timestamp exists on the alarm-event hypertable.
 		// alarm_id catalog:
 		//   1=device_down  2=link_down  3=high_cpu  4=admin_oper_mismatch
 		//   5=high_memory  6=snmp_failure
@@ -189,12 +180,10 @@ var schema = []tableSpec{
 	},
 }
 
-// RunMigrations is the self-healing schema synchronization entry point.
-// It inspects the live database state and applies the minimum set of patches
-// needed to bring the schema into conformance with the desired state above.
-// It is fully idempotent — safe to call on every container startup.
+// RunMigrations applies the selected idempotent schema repairs and catalog seed
+// used by this application. It runs before background workers start.
 func RunMigrations(ctx context.Context, database *DB, logger *slog.Logger) error {
-	logger.Info("[Schema Sync] Starting self-healing schema synchronization pass...")
+	logger.Info("[Schema Sync] Starting schema synchronization pass...")
 
 	for _, table := range schema {
 		if err := syncTable(ctx, database, logger, table); err != nil {
@@ -214,7 +203,7 @@ func RunMigrations(ctx context.Context, database *DB, logger *slog.Logger) error
 		return fmt.Errorf("audit event index creation failed: %w", err)
 	}
 
-	logger.Info("[Schema Sync] All schema checks passed. Database is in the desired state.")
+	logger.Info("[Schema Sync] Selected schema checks completed.")
 	return nil
 }
 
@@ -262,19 +251,20 @@ func syncTable(ctx context.Context, database *DB, logger *slog.Logger, spec tabl
 
 // syncColumn inspects a single column and applies ADD COLUMN, DROP COLUMN, or DROP NOT NULL as needed.
 func syncColumn(ctx context.Context, database *DB, logger *slog.Logger, tableName string, col columnSpec) error {
+	columnName := `"` + strings.ReplaceAll(col.name, `"`, `""`) + `"`
 	isNullable, colExists, err := columnInfo(ctx, database, tableName, col.name)
 	if err != nil {
 		return err
 	}
 
-	// Drop relic columns that should not exist in production.
+	// Drop obsolete columns identified in earlier local schemas.
 	if col.dropCol {
 		if !colExists {
 			logger.Info("[Schema Sync] Relic column already absent — no action taken", "table", tableName, "column", col.name)
 			return nil
 		}
 		logger.Warn("[Schema Sync] Relic column detected — dropping", "table", tableName, "column", col.name)
-		ddl := fmt.Sprintf("ALTER TABLE %s DROP COLUMN IF EXISTS %s", tableName, col.name)
+		ddl := fmt.Sprintf("ALTER TABLE %s DROP COLUMN IF EXISTS %s", tableName, columnName)
 		if _, err := database.Pool.Exec(ctx, ddl); err != nil {
 			return fmt.Errorf("DROP COLUMN failed on %s.%s: %w", tableName, col.name, err)
 		}
@@ -284,7 +274,7 @@ func syncColumn(ctx context.Context, database *DB, logger *slog.Logger, tableNam
 
 	if !colExists {
 		logger.Info("[Schema Sync] Column missing — adding now", "table", tableName, "column", col.name, "type", col.dataType)
-		ddl := fmt.Sprintf("ALTER TABLE %s ADD COLUMN IF NOT EXISTS %s %s", tableName, col.name, col.dataType)
+		ddl := fmt.Sprintf("ALTER TABLE %s ADD COLUMN IF NOT EXISTS %s %s", tableName, columnName, col.dataType)
 		if _, err := database.Pool.Exec(ctx, ddl); err != nil {
 			return fmt.Errorf("ADD COLUMN failed on %s.%s: %w", tableName, col.name, err)
 		}
@@ -296,7 +286,7 @@ func syncColumn(ctx context.Context, database *DB, logger *slog.Logger, tableNam
 	if col.allowNull && !isNullable {
 		logger.Warn("[Schema Sync] NOT NULL constraint detected on nullable column — dropping constraint",
 			"table", tableName, "column", col.name)
-		ddl := fmt.Sprintf("ALTER TABLE %s ALTER COLUMN %s DROP NOT NULL", tableName, col.name)
+		ddl := fmt.Sprintf("ALTER TABLE %s ALTER COLUMN %s DROP NOT NULL", tableName, columnName)
 		if _, err := database.Pool.Exec(ctx, ddl); err != nil {
 			return fmt.Errorf("DROP NOT NULL failed on %s.%s: %w", tableName, col.name, err)
 		}
@@ -433,7 +423,7 @@ func verifyDeviceModelCount(ctx context.Context, database *DB, logger *slog.Logg
 // DATABASE QUERY HELPERS
 // ============================================================================
 
-// Close gracefully releases cluster connections
+// Close releases the pooled database connections.
 func (db *DB) Close() {
 	if db.Pool != nil {
 		db.Pool.Close()
