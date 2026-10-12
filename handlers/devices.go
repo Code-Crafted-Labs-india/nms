@@ -89,10 +89,15 @@ func AddDeviceHandler(database *db.DB) http.HandlerFunc {
 			return
 		}
 		if payload.SnmpCommunity == "" {
-			payload.SnmpCommunity = "public"
+			jsonResponse(w, http.StatusBadRequest, map[string]string{"error": "snmp_community is required for SNMPv1/v2c polling"})
+			return
 		}
 		if payload.SnmpVersion == "" {
 			payload.SnmpVersion = "v2c"
+		}
+		if !supportedSNMPVersion(payload.SnmpVersion) {
+			jsonResponse(w, http.StatusUnprocessableEntity, map[string]string{"error": "only SNMPv1 and SNMPv2c are currently supported for Telegraf target generation"})
+			return
 		}
 		monitored := true
 		if payload.IsMonitored != nil {
@@ -172,6 +177,13 @@ func EditDeviceHandler(database *db.DB) http.HandlerFunc {
 			jsonResponse(w, http.StatusBadRequest, map[string]string{"error": "hostname and ip_address are required"})
 			return
 		}
+		if payload.SnmpVersion == "" {
+			payload.SnmpVersion = "v2c"
+		}
+		if !supportedSNMPVersion(payload.SnmpVersion) {
+			jsonResponse(w, http.StatusUnprocessableEntity, map[string]string{"error": "only SNMPv1 and SNMPv2c are currently supported for Telegraf target generation"})
+			return
+		}
 
 		monitored := true
 		if payload.IsMonitored != nil {
@@ -212,6 +224,10 @@ func EditDeviceHandler(database *db.DB) http.HandlerFunc {
 
 		jsonResponse(w, http.StatusOK, map[string]string{"status": "success", "message": "Device updated successfully"})
 	}
+}
+
+func supportedSNMPVersion(version string) bool {
+	return version == "v1" || version == "v2c"
 }
 
 func DeleteDeviceHandler(database *db.DB) http.HandlerFunc {

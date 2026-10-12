@@ -24,6 +24,19 @@ services:
     depends_on:
       timescaledb:
         condition: service_healthy
+      nms-middleware:
+        condition: service_healthy
+      telegraf-config-volume-init:
+        condition: service_completed_successfully
+    command:
+      - --config
+      - /etc/telegraf/telegraf.conf
+      - --config-directory
+      - /etc/telegraf/generated
+      - --watch-config
+      - notify
+    group_add:
+      - "10001"
     networks:
       - nms_net
       - data_net
@@ -31,7 +44,15 @@ services:
       - DB_PASSWORD=${DB_PASSWORD:?Set DB_PASSWORD to a unique random value}
     volumes:
       - ./telegraf.conf:/etc/telegraf/telegraf.conf:ro
+      - telegraf_generated:/etc/telegraf/generated:ro
     restart: unless-stopped
+
+  telegraf-config-volume-init:
+    image: alpine:3.22
+    command: ["sh", "-c", "chown 10001:10001 /generated && chmod 0750 /generated"]
+    volumes:
+      - telegraf_generated:/generated
+    restart: "no"
 
   # =========================================================================
   # GO MIDDLEWARE SERVICE CONTAINER
@@ -44,6 +65,7 @@ services:
     environment:
       - NMS_BOOTSTRAP_TOKEN=${NMS_BOOTSTRAP_TOKEN:?Set NMS_BOOTSTRAP_TOKEN to at least 32 random characters}
       - NMS_DB_DSN=postgres://postgres:${DB_PASSWORD:?Set DB_PASSWORD to a unique random value}@timescaledb:5432/nms_db?sslmode=disable
+      - NMS_TELEGRAF_CONFIG_DIR=/var/lib/nms/telegraf
     cap_drop:
       - ALL
     security_opt:
@@ -56,12 +78,21 @@ services:
     depends_on:
       timescaledb:
         condition: service_healthy
+      telegraf-config-volume-init:
+        condition: service_completed_successfully
     networks:
       - nms_net
       - data_net
       - app_net
     stop_grace_period: 15s
+    volumes:
+      - telegraf_generated:/var/lib/nms/telegraf
     restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O /dev/null http://127.0.0.1:8080/healthz || exit 1"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
 
   nms-ui:
     build:
@@ -445,3 +476,4 @@ volumes:
   grafana_storage:
   nms_db_data:
     driver: local
+  telegraf_generated:

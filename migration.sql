@@ -9,6 +9,16 @@ CREATE TABLE IF NOT EXISTS device_models (
     model_name TEXT NOT NULL UNIQUE
 );
 
+CREATE TABLE IF NOT EXISTS nms_runtime_settings (
+    setting_key TEXT PRIMARY KEY,
+    setting_value TEXT NOT NULL,
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+INSERT INTO nms_runtime_settings (setting_key, setting_value)
+VALUES ('monitoring_mode', 'test')
+ON CONFLICT (setting_key) DO NOTHING;
+
 CREATE TABLE IF NOT EXISTS devices (
     id SERIAL PRIMARY KEY,
     hostname VARCHAR(255) NOT NULL UNIQUE,

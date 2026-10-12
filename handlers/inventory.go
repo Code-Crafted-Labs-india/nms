@@ -66,7 +66,7 @@ func InventoryHandler(database *db.DB) http.HandlerFunc {
 
 		// Build dynamic WHERE clause.
 		args := []any{}
-		where := "WHERE 1=1"
+		where := "WHERE " + deviceModePredicate("d")
 
 		if monitoredOnly {
 			where += " AND d.is_monitored = TRUE"
@@ -264,12 +264,12 @@ func DeviceDetailHandler(database *db.DB) http.HandlerFunc {
 		var detail DeviceDetail
 
 		// --- Identity row ---
-		err := database.Pool.QueryRow(ctx, `
+		err := database.Pool.QueryRow(ctx, fmt.Sprintf(`
 			SELECT id, hostname, ip_address::text, device_type,
 			       COALESCE(location, 'Unassigned'), is_monitored, snmp_version,
 			       to_char(created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"')
-			FROM devices WHERE id = $1
-		`, idStr).Scan(
+			FROM devices d WHERE id = $1 AND %s
+		`, deviceModePredicate("d")), idStr).Scan(
 			&detail.ID, &detail.Hostname, &detail.IPAddress, &detail.DeviceType,
 			&detail.Location, &detail.IsMonitored, &detail.SnmpVersion, &detail.CreatedAt,
 		)

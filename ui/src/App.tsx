@@ -11,7 +11,7 @@ import {
   ApiError, dashboardApi,
   type DashboardData, type MetricPoint,
   type InventoryDevice, type DeviceDetail, type DeviceAlarm, type DeviceInterface,
-  type DeviceModel, type DevicePayload, type AuditEvent,
+  type DeviceModel, type DevicePayload, type AuditEvent, type MonitoringMode, type MonitoringModeState,
 } from './api'
 
 type View = 'overview' | 'topology' | 'alerts' | 'inventory' | 'audit'
@@ -418,7 +418,7 @@ function DeviceEditor({ device, models, onClose, onSave }: {
         </div></div>
         <div className="border-t border-white/8 pt-5"><p className="label">Monitoring and access</p><div className="mt-3 grid gap-4 sm:grid-cols-2">
           <label className={label}>SNMP version<select className={field} value={draft.snmpVersion} onChange={e=>update('snmpVersion',e.target.value)}><option value="v2c">SNMPv2c · migration / lab</option>{device?.snmpVersion==='v3'&&<option value="v3">SNMPv3 · current</option>}</select>{!device&&<span className="mt-1 block text-[11px] text-slate-600">SNMPv3 onboarding is available when credential profiles are added.</span>}</label>
-          {draft.snmpVersion==='v2c'&&<label className={label}>SNMP community{device&&<span className="ml-1 font-normal text-slate-600">(leave blank to keep current)</span>}<input className={field} type="password" autoComplete="new-password" value={draft.snmpCommunity} onChange={e=>update('snmpCommunity',e.target.value)} placeholder={device?'Stored value is hidden':'Defaults to public'} /></label>}
+          {(draft.snmpVersion==='v2c'||draft.snmpVersion==='v1')&&<label className={label}>SNMP community{device&&<span className="ml-1 font-normal text-slate-600">(leave blank to keep current)</span>}<input className={field} type="password" autoComplete="new-password" value={draft.snmpCommunity} onChange={e=>update('snmpCommunity',e.target.value)} placeholder={device?'Stored value is hidden':'Enter the device read-only community'} required={!device} /></label>}
         </div>
         <label className="mt-4 flex cursor-pointer items-start gap-3 rounded-xl border border-white/8 bg-white/[.02] p-4"><input type="checkbox" checked={draft.isMonitored} onChange={e=>update('isMonitored',e.target.checked)} className="mt-0.5 accent-[#d6ff8a]"/><span><strong className="block text-sm font-medium text-slate-200">Monitor this device</strong><span className="mt-1 block text-xs text-slate-500">Include this device in reachability monitoring and fleet health.</span></span></label>
         </div>
@@ -607,6 +607,9 @@ export default function App() {
   const [view, setView] = useState<View>('overview')
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
+  const [monitoringMode, setMonitoringMode] = useState<MonitoringMode|null>(null)
+  const [modeState, setModeState] = useState<MonitoringModeState|null>(null)
+  const [changingMode, setChangingMode] = useState(false)
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -616,7 +619,26 @@ export default function App() {
   }, [])
 
   useEffect(()=>{ dashboardApi.session().then(()=>setAuthenticated(true)).catch(()=>setAuthenticated(false)) },[])
+  useEffect(()=>{ if(!authenticated)return; dashboardApi.monitoringMode().then(result=>{setMonitoringMode(result.mode);setModeState(result)}).catch(()=>setError('Unable to read the active device mode.')) },[authenticated])
   useEffect(()=>{ if(!authenticated)return; const first=window.setTimeout(load,0); const id=window.setInterval(load,15000); return()=>{ window.clearTimeout(first); window.clearInterval(id) } },[authenticated,load])
+
+  async function changeMode(nextMode:MonitoringMode) {
+    if (!monitoringMode || nextMode===monitoringMode || changingMode) return
+    const targetCount=nextMode==='test'?modeState?.testDeviceCount??0:modeState?.liveDeviceCount??0
+    const scope = nextMode==='test'
+      ? `This will poll ${targetCount} monitored mock device${targetCount===1?'':'s'}.`
+      : `This will stop mock polling and begin polling ${targetCount} monitored real device${targetCount===1?'':'s'}.`
+    if (!window.confirm(`Switch NetPulse to ${nextMode.toUpperCase()} mode? ${scope} Changes reach collectors within about 15 seconds.`)) return
+    setChangingMode(true); setError('')
+    try {
+      const result=await dashboardApi.setMonitoringMode(nextMode)
+      setMonitoringMode(result.mode)
+      setModeState(result)
+      await load()
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Unable to change device mode.')
+    } finally { setChangingMode(false) }
+  }
 
   if(authenticated===null) return <div className="grid min-h-screen place-items-center bg-[#07100f] text-emerald-300"><RefreshCw className="animate-spin"/></div>
   if(!authenticated) return <Login onAuthenticated={()=>setAuthenticated(true)}/>
@@ -667,6 +689,15 @@ export default function App() {
         <header className="sticky top-0 z-10 flex h-20 items-center gap-4 border-b border-white/7 bg-[#07100f]/90 px-5 backdrop-blur-xl sm:px-8">
           <div className="lg:hidden flex items-center gap-2"><img src="/ccl-logo-dark.png" alt="Code Crafted Labs" className="size-8 rounded-full object-cover"/><Radio className="text-[#d6ff8a]"/></div>
           <div className="flex-1"/>
+          <label className="flex items-center gap-2 text-xs">
+            <span className="hidden text-slate-500 sm:inline">Device mode</span>
+            <select aria-label="Device mode" value={monitoringMode ?? ''} disabled={!monitoringMode||changingMode}
+              onChange={event=>changeMode(event.target.value as MonitoringMode)}
+              className={`rounded-lg border px-3 py-2 text-xs font-semibold outline-none ${monitoringMode==='production'?'border-rose-400/40 bg-rose-400/10 text-rose-200':'border-emerald-400/30 bg-emerald-400/10 text-emerald-200'} disabled:opacity-60`}>
+              <option value="test">TEST · mock devices</option>
+              <option value="production">PRODUCTION · real devices</option>
+            </select>
+          </label>
           <button onClick={load} aria-label="Refresh dashboard" className="grid size-9 place-items-center rounded-lg border border-white/8 text-slate-500 hover:text-emerald-300">
             <RefreshCw className={loading?'animate-spin':''} size={16}/>
           </button>
@@ -680,13 +711,14 @@ export default function App() {
             <div>
               <p className="mb-2 flex items-center gap-2 text-xs font-semibold uppercase tracking-[.18em] text-emerald-400"><Activity size={13}/>Live telemetry</p>
               <h1 className="text-2xl font-semibold tracking-tight text-white">{nav.find(item=>item.id===view)?.label}</h1>
+              <p className="mt-1 text-xs text-slate-500">{monitoringMode==='test'?`Test mode · ${modeState?.testDeviceCount??'…'} monitored mock devices`:monitoringMode==='production'?`Production mode · ${modeState?.liveDeviceCount??'…'} monitored real devices`:'Reading active device mode…'}</p>
             </div>
             <p className="text-xs text-slate-600">Last synchronized {formatTime(data.generatedAt)}</p>
           </div>
           {error&&<div role="alert" className="mb-4 flex items-center gap-2 rounded-lg border border-amber-400/20 bg-amber-400/8 p-3 text-sm text-amber-200"><AlertTriangle size={16}/>{error}</div>}
           {view==='overview'&&<Overview data={data}/>}
           {view==='topology'&&<TopologyMap data={data}/>}
-          {view==='inventory'&&<InventoryView/>}
+          {view==='inventory'&&<InventoryView key={monitoringMode ?? 'loading'}/>}
           {view==='alerts'&&<Alerts events={data.events}/>}
           {view==='audit'&&<AuditView/>}
         </main>

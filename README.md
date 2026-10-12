@@ -93,10 +93,16 @@ production database. Production isolation and security work is tracked in
 `docs/security-hardening-future-scope.md`.
 
 The running mock devices expose SNMP and ICMP for the demo configuration.
-Telegraf polls the addresses in `telegraf.conf`; this validates the demo
-pipeline, not vendor compatibility or real-network readiness. Follow
+Middleware generates Telegraf targets from monitored inventory; the base
+`telegraf.conf` contains only agent/output settings. This validates the demo
+pipeline, not vendor compatibility or real-network readiness. Current generated
+SNMP supports v1/v2c and generic system/IF-MIB/LLDP polling. Communities remain
+plaintext, SNMPv3 and CIDR discovery are not implemented, and vendor CPU/memory
+profiles need to be added and validated. Follow
 [`docs/real-world-deployment.md`](docs/real-world-deployment.md) for a real
-device pilot.
+device pilot. The UI's persistent Device mode selector scopes polling to
+`mock-*` devices in TEST mode or enabled enrolled non-mock devices in
+PRODUCTION mode; review inventory before switching.
 
 
 

@@ -19,6 +19,8 @@ export type AuditEvent = {
   outcome: 'success'|'failure'; method: string; path: string; status_code: number
 }
 export type AuditResponse = { events: AuditEvent[]; page: number; page_size: number }
+export type MonitoringMode = 'test'|'production'
+export type MonitoringModeState = { mode:MonitoringMode; testDeviceCount:number; liveDeviceCount:number }
 export type DevicePayload = {
   hostname: string; ip_address: string; device_type: string; location: string
   snmp_community: string; snmp_version: string; is_monitored: boolean
@@ -65,6 +67,8 @@ export const dashboardApi = {
   async session() { const session=await request<{csrfToken:string}>('/api/session'); csrfToken=session.csrfToken },
   async logout() { await request<void>('/api/session',{method:'DELETE'}); csrfToken='' },
   dashboard() { return request<DashboardData>('/api/v1/dashboard') },
+  monitoringMode() { return request<MonitoringModeState>('/api/v1/monitoring-mode') },
+  setMonitoringMode(mode:MonitoringMode) { return request<MonitoringModeState>('/api/v1/monitoring-mode',{method:'PUT',body:JSON.stringify({mode})}) },
   inventory(params: Record<string, string|number> = {}) {
     const qs = new URLSearchParams(Object.entries(params).map(([k,v])=>[k,String(v)])).toString()
     return request<InventoryResponse>(`/api/v1/devices${qs ? '?'+qs : ''}`)

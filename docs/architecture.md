@@ -10,7 +10,7 @@ see [real-world-deployment.md](real-world-deployment.md).
 
 ```mermaid
 flowchart LR
-  D[Managed devices] -->|SNMP polls, configured in telegraf.conf| T[Telegraf]
+  D[Managed devices] -->|SNMP polls, generated from monitored inventory| T[Telegraf]
   D -->|ICMP echo, inventory-driven| P[Go ping worker]
   T -->|PostgreSQL output| DB[(TimescaleDB / PostgreSQL)]
   P -->|health samples| DB
@@ -26,12 +26,14 @@ flowchart LR
   GF[Grafana: engineering aid] --> DB
 ```
 
-Telegraf currently owns the SNMP target list and credentials in
-[`../telegraf.conf`](../telegraf.conf); adding an inventory record does not add
-it to Telegraf. The Go process reads the inventory for its ICMP sweep and alarm
-evaluation. Both processes write to the same database. The React application
-uses the Go API through Nginx. Grafana is present as an engineering aid; the
-operator application is the React UI.
+Telegraf's base settings and PostgreSQL output are in
+[`../telegraf.conf`](../telegraf.conf). The Go process generates Telegraf SNMP
+and Telegraf ICMP inputs from monitored inventory into a shared volume; a local
+Telegraf config watcher reloads when that file changes. The Go process also
+reads inventory for its own ICMP sweeps and alarm evaluation. Both processes
+write to the same database. The React application uses the Go API through
+Nginx. Grafana is present as an engineering aid; the operator application is
+the React UI.
 
 ## 2. Compose services and network boundaries
 
@@ -40,8 +42,8 @@ The authoritative configuration is [`../docker-compose.yml`](../docker-compose.y
 | Service | Role | Network attachment / exposure |
 |---|---|---|
 | `timescaledb` | PostgreSQL 15 with TimescaleDB, persistent database volume | `data_net` (`internal: true`); port 5432 is not published to the host |
-| `telegraf` | Polls static ICMP and SNMP targets; inserts metrics | `nms_net` and `data_net` |
-| `nms-middleware` | Go API, ICMP worker, discovery, topology, and alarm workers | `nms_net`, `data_net`, `app_net`; container port 8080 is exposed internally, not host-published |
+| `telegraf` | Polls SNMP and Telegraf ICMP targets generated from monitored inventory; inserts metrics | `nms_net` and `data_net`; reads generated config from a read-only named volume |
+| `nms-middleware` | Go API, ICMP worker, Telegraf target generator, discovery, topology, and alarm workers | `nms_net`, `data_net`, `app_net`; container port 8080 is exposed internally, not host-published; writes generated config to a named volume |
 | `nms-ui` | Static React build served by Nginx; proxies `/api/` to Go | `app_net`; host bind defaults to `127.0.0.1:3000` |
 | `mock-*` | Simulated SNMP/ICMP agents for the demo lab | Static addresses on `nms_net` |
 | `grafana` | Optional engineering dashboards | `data_net`; host bind defaults to loopback port 3001 |
@@ -95,20 +97,61 @@ changing schema behavior.
 
 ### SNMP and Telegraf
 
-[`../telegraf.conf`](../telegraf.conf) has four input tracks:
+[`../telegraf.conf`](../telegraf.conf) contains the agent settings and database
+output. The generated file is written by [`../telegrafconfig/config.go`](../telegrafconfig/config.go)
+to the `telegraf_generated` Docker volume. It creates these input tracks for
+monitored devices:
 
 | Track | Current collection | Destination / consumer |
 |---|---|---|
-| ICMP | `inputs.ping` against hard-coded `192.168.10.x` addresses, every 15 seconds, two probes | Telegraf PostgreSQL output table `device_health_metrics` (raw plugin fields) |
-| Device health | SNMPv2, 30-second agent interval, UCD-style CPU and memory OIDs | `snmp_device_health`; dashboard, memory alarm, SNMP freshness alarm |
+| ICMP | `inputs.ping` against monitored inventory IPs, every 15 seconds, two probes | Telegraf PostgreSQL output table `device_health_metrics` (raw plugin fields) |
+| Device identity/uptime | SNMPv1/v2c, standard `sysName` and `sysUpTime` OIDs | `snmp_device_health`; identity/freshness data. Generic CPU and memory polling is not configured |
 | Interfaces | IF-MIB interface table: admin/oper, speed/high speed, HC and legacy counters, errors/discards | `interface_performance_metrics`; device detail currently reads these raw rows |
 | LLDP | LLDP remote-system table every 60 seconds | `snmp_lldp_topology`; Go topology worker |
 
-The PostgreSQL output flush interval is 10 seconds. The config uses the
-community `public` and SNMP version 2 for the demo targets. These are sample
-values, not suitable production credentials. The currently configured vendor
-CPU/memory OIDs must be validated against each real device family; their numeric
-OIDs and output units are visible directly in the config.
+The PostgreSQL output flush interval is 10 seconds. The generator reads
+`snmp_version` and `snmp_community` from monitored `devices`, excludes generic
+`unknown_discovered` records until they are explicitly enrolled as a supported
+model, groups targets with matching credentials, and generates separate SNMP input instances for
+health, interfaces, and LLDP. It currently supports `v1` and `v2c`; SNMPv3 is
+skipped because the schema does not store SNMPv3 security credentials. New or
+updated inventory is checked every 15 seconds, and Telegraf watches the shared
+config directory using filesystem notifications.
+
+Communities are currently stored in plaintext in `devices.snmp_community` and
+appear in the generated config file. The file is mode 0640 in a Docker volume
+readable by the middleware and Telegraf group, but this is not encrypted
+credential storage. For a production deployment use approved secret storage
+and restrict access to the database, Docker host, and volume. The generic
+generated configuration does not poll CPU or memory. The former
+demo CPU/memory OIDs are simulator-specific; vendor/model profiles with tested
+OIDs and units are required before those metrics can be collected reliably.
+
+This is inventory-driven polling, not subnet scanning. An operator must add a
+device through the inventory UI first. The existing telemetry discovery worker
+can create generic `unknown_discovered` records from observed SNMP telemetry;
+the target generator deliberately excludes those rows. The service does not
+discover unknown routers on a CIDR range or provide a pending-candidate
+approval queue.
+
+### Test/production device mode
+
+The authenticated UI selector changes the persistent `monitoring_mode` value
+in `nms_runtime_settings`. A fresh installation starts in `test` mode. In test
+mode, Telegraf polling, Go ICMP sweeps, alarm evaluation, dashboard data, and
+Fleet inventory are scoped to monitored hostnames beginning `mock-`. In
+production mode, those paths use monitored, enrolled devices whose hostname
+does not begin `mock-`. `unknown_discovered` records are excluded from both
+mode until an operator enrolls them as a supported model. The UI asks for
+confirmation before switching and displays the number of monitored devices in
+the target scope. Telegraf reconciles the changed target set within about 15
+seconds; ICMP and alarm loops use their normal intervals. The mode is global
+for this NMS instance and survives restarts.
+
+This naming convention is the current test/production boundary. Use `mock-`
+only for lab agents. Switching to production starts collection for every
+enabled enrolled non-mock device, so use the selector only after checking the
+inventory and device ACLs.
 
 Telegraf emits raw SNMP interface samples into `interface_performance_metrics`
 with `agent_host`, `ifIndex`, `ifDescr`, and mixed-case SNMP field names. That
@@ -155,11 +198,12 @@ may create/extend output tables depending on its version and metric fields.
 | Table | Intended role | Current writer / consumer notes |
 |---|---|---|
 | `devices` | Inventory: address, hostname, type, location, SNMP settings, monitored flag | Migration seed, API CRUD, discovery; ICMP and alarm workers read it |
+| `nms_runtime_settings` | Persistent global polling mode (`test` or `production`) | Mode selector API writes it; Telegraf/ICMP/alarm/API queries use it to select device scope |
 | `device_models` | Model catalog used to validate device CRUD | Seeded by `db.RunMigrations`; read by catalog API and device form |
 | `interfaces` | Canonical relational interface records linked to a device | Schema exists; current discovery does not populate it automatically |
 | `device_health_metrics` (hypertable) | ICMP results and schema fields for health telemetry | Go ping writes device-linked ICMP rows; Telegraf ping may write plugin rows with different fields; dashboard queries device-linked rows |
 | `interface_performance_metrics` (hypertable) | Raw IF-MIB rows plus reserved normalized columns | Telegraf writes raw SNMP fields. Device detail derives bps/utilization from the latest two samples by `agent_host` + `ifIndex` |
-| `snmp_device_health` (hypertable) | Raw CPU/memory samples | Telegraf writes; dashboard/detail and alarms read |
+| `snmp_device_health` (hypertable) | Raw system identity/uptime samples for generated inventory targets | Telegraf writes; freshness logic reads recent records. Generic CPU/memory fields are not collected by the current generated profile |
 | `snmp`, `snmp_interface`, `snmp_lldp_topology` (hypertables) | Generic system, interface, and LLDP raw telemetry | Telegraf writes; discovery reads `snmp_interface`, topology reads LLDP table. The active IF-MIB table is named `interface_performance_metrics` rather than `snmp_interface` |
 | `network_topology` | Current LLDP edge list | Topology worker writes; dashboard API reads |
 | `network_events` (hypertable) | Alarm instances with event type, severity, resolved state and timestamp | Alarm strategies insert/auto-resolve; operator API can manually resolve |
@@ -283,7 +327,7 @@ To trace a user-visible field end-to-end, follow this chain:
 | `main.go` | Process startup, worker intervals, alarm registration, HTTP route table, shutdown |
 | `db/db.go` | DB pool, runtime schema synchronization, model catalog seed, DB helper methods |
 | `migration.sql` | Fresh database schema, indexes, seed data, hypertable declarations |
-| `telegraf.conf` | SNMP/ICMP targets, OIDs, polling intervals, Telegraf database output |
+| `telegraf.conf` | Telegraf agent defaults and PostgreSQL output; generated inventory inputs live in `telegrafconfig/config.go` |
 | `ping/pinger.go` | Inventory-driven ICMP, result persistence |
 | `discovery/discovery.go` | Automatic insertion of unregistered SNMP reporting IPs |
 | `topology/topology.go` | LLDP row parsing, neighbor resolution, graph edge expiry |
@@ -298,7 +342,8 @@ To trace a user-visible field end-to-end, follow this chain:
 ### Typical coding sequence: add a device metric
 
 1. Verify its device MIB/OID, value type, unit, access and polling cost.
-2. Add/configure the Telegraf field or table in `telegraf.conf`.
+2. Add/configure the generated input/profile in `telegrafconfig/config.go`;
+   reserve `telegraf.conf` for shared agent and output settings.
 3. Decide whether the data remains raw, or needs a normalized destination and
    an explicit writer/mapping step. Do not assume a matching column is written.
 4. Update `migration.sql` and `db/db.go` only if a durable schema change is
@@ -322,8 +367,8 @@ To trace a user-visible field end-to-end, follow this chain:
 
 ## 10. What this implementation does not currently provide
 
-- Dynamic/inventory-driven Telegraf target configuration or per-device
-  credential profiles.
+- Protected credential profiles, SNMPv3, config validation before activation,
+  reload status/rollback, and vendor-specific CPU/memory polling profiles.
 - Automatic canonical interface inventory population and normalization of the
   raw Telegraf IF-MIB rows used by the two interface-state strategies.
 - The full client alarm list, traps, syslog, email/SMS/webhook delivery, or
@@ -335,5 +380,6 @@ To trace a user-visible field end-to-end, follow this chain:
   a representative real-device pilot.
 
 Treat the default Compose stack as a development/demo environment until its
-static targets, credentials, OIDs, routing, TLS, persistence, backup, and
-monitoring are adapted and verified for the customer network.
+seed inventory, plaintext credentials, supported OIDs, routing, TLS,
+persistence, backup, and monitoring are adapted and verified for the customer
+network.

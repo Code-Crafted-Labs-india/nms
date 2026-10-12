@@ -147,6 +147,18 @@ var schema = []tableSpec{
 		},
 	},
 	{
+		name: "nms_runtime_settings",
+		createDDL: `CREATE TABLE IF NOT EXISTS nms_runtime_settings (
+			setting_key TEXT PRIMARY KEY,
+			setting_value TEXT NOT NULL,
+			updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+		)`,
+		columns: []columnSpec{
+			{name: "setting_value", dataType: "TEXT", allowNull: false},
+			{name: "updated_at", dataType: "TIMESTAMPTZ", allowNull: false},
+		},
+	},
+	{
 		// Ensure the resolution timestamp exists on the alarm-event hypertable.
 		// alarm_id catalog:
 		//   1=device_down  2=link_down  3=high_cpu  4=admin_oper_mismatch
@@ -194,6 +206,13 @@ func RunMigrations(ctx context.Context, database *DB, logger *slog.Logger) error
 	// Seed the device_models catalog after the table is confirmed to exist.
 	if err := seedDeviceModels(ctx, database, logger); err != nil {
 		return fmt.Errorf("device_models seeding failed: %w", err)
+	}
+	if _, err := database.Pool.Exec(ctx, `
+		INSERT INTO nms_runtime_settings (setting_key, setting_value)
+		VALUES ('monitoring_mode', 'test')
+		ON CONFLICT (setting_key) DO NOTHING
+	`); err != nil {
+		return fmt.Errorf("monitoring mode initialization failed: %w", err)
 	}
 
 	if err := verifyDeviceModelCount(ctx, database, logger); err != nil {
@@ -432,7 +451,14 @@ func (db *DB) Close() {
 }
 
 func (db *DB) SelectIdAndIp(ctx context.Context) (pgx.Rows, error) {
-	res, err := db.Pool.Query(ctx, "SELECT id, ip_address::text FROM devices WHERE is_monitored = true")
+	res, err := db.Pool.Query(ctx, `
+		SELECT d.id, d.ip_address::text
+		FROM devices d
+		WHERE d.is_monitored = TRUE
+		  AND d.device_type <> 'unknown_discovered'
+		  AND ((SELECT setting_value FROM nms_runtime_settings WHERE setting_key = 'monitoring_mode') = 'test' AND LOWER(d.hostname) LIKE 'mock-%'
+		    OR (SELECT setting_value FROM nms_runtime_settings WHERE setting_key = 'monitoring_mode') = 'production' AND LOWER(d.hostname) NOT LIKE 'mock-%')
+	`)
 	if err != nil {
 		return nil, err
 	}

@@ -3,9 +3,11 @@
 This guide describes how to prepare NetPulse for a controlled deployment that
 polls real network equipment. It is a deployment and pilot guide, not a claim
 that this repository is production-certified. The current Compose stack is a
-development/demo environment: it includes simulated devices, static SNMPv2c
-targets and credentials, and a middleware database connection with TLS
-disabled. Do not expose that stack to a production network unchanged.
+development/demo environment: it includes simulated devices and demo inventory,
+and a middleware database connection with TLS disabled. Telegraf targets are
+generated from monitored inventory, but the current implementation supports
+only SNMPv1/v2c and stores communities in plaintext. Do not expose that stack
+to a production network unchanged.
 
 For organizational security requirements, use this guide together with the
 [command-center security baseline](ui-security-baseline.md),
@@ -62,9 +64,12 @@ are required. Never use the mock `public` community on real devices.
 Create and review a production-specific Compose/configuration set before
 starting the stack. The supplied `docker-compose.yml` includes mock device
 containers on `192.168.10.0/24`, binds UI/Grafana to the host, and uses
-development-oriented image tags. The supplied `telegraf.conf` has mock IPs,
-SNMPv2c `public`, and simulator-specific CPU/memory OIDs. It must be replaced
-with customer-specific targets, credentials, and vendor-appropriate OIDs.
+development-oriented image tags. The base `telegraf.conf` contains the agent
+and database output. The middleware generates polling inputs in a shared
+volume from monitored inventory; it does not scan subnets. Demo seed rows use
+the `public` community. Current generated SNMP health fields are standard
+`sysName`/`sysUpTime`; interface collection uses IF-MIB. Vendor CPU/memory OIDs
+are not configured by this generic path.
 
 At minimum, the production configuration must:
 
@@ -72,29 +77,36 @@ At minimum, the production configuration must:
 2. Bind the command center only to loopback behind the approved HTTPS/identity
    gateway, or use an explicitly reviewed management interface and firewall.
    Do not publish the middleware API or database ports to the host.
-3. Replace static mock Telegraf targets with only approved device addresses.
-   Configure SNMPv3 security level, username, authentication and privacy
-   protocols, and secrets using the Telegraf version's supported secret
-   mechanism. Keep secrets out of Git and logs.
-4. Replace simulator-specific CPU and memory OIDs with tested vendor MIBs.
-   Validate interface counter widths and counter rollover behavior. Configure
-   LLDP polling only where the device supports it and the SNMP view permits it.
-5. Replace all `latest` image references with reviewed, pinned versions or
+3. Remove demo inventory rows and mock services, then add only approved pilot
+   devices in the Fleet UI. Monitored inventory is reconciled into Telegraf's
+   generated target file about every 15 seconds. The current target generator
+   supports SNMPv1 and SNMPv2c only; SNMPv3 credentials/profiles are not
+   implemented, and unsupported versions are skipped with a middleware log
+   warning. Do not treat `public` as a real-device credential.
+4. Protect SNMP community values before connecting real devices. Today they
+   are stored in the database and generated Telegraf file as plaintext; the
+   volume is shared with Telegraf and is not encrypted. Do not use production
+   secrets until protected credential storage is implemented and reviewed.
+5. Validate IF-MIB counter support/width and LLDP-MIB access per device family.
+   Current generic polling does not collect vendor CPU or memory metrics.
+   Those need tested model-specific OIDs, units, and polling profiles before
+   corresponding alarms or dashboards can be trusted.
+6. Replace all `latest` image references with reviewed, pinned versions or
    digests; record the approved image provenance.
-6. Store secrets in the organization's secrets manager or protected files with
+7. Store bootstrap/database secrets in the organization's secrets manager or protected files with
    restrictive ownership and permissions. Use distinct high-entropy values;
    rotate all bootstrap/development credentials.
-7. Configure TLS for database connections and least-privilege database roles.
+8. Configure TLS for database connections and least-privilege database roles.
    The checked-in middleware DSN currently sets `sslmode=disable`, and Telegraf
    connects as the PostgreSQL superuser. These require deployment changes.
-8. Keep logs, database volumes, backups, and Grafana data on protected storage
+9. Keep logs, database volumes, backups, and Grafana data on protected storage
    with documented retention, capacity monitoring, and restore procedures.
 
-The inventory form accepts device SNMP metadata, but current polling does not
-automatically consume inventory credentials: Telegraf's target list is static.
-Until inventory-driven polling and credential profiles are implemented,
-changes to managed devices must be coordinated between inventory and the
-Telegraf configuration, then reviewed and deployed as configuration changes.
+Adding or editing a monitored device updates generated Telegraf targets without
+editing `telegraf.conf`; the watcher applies changed files. This does not
+perform discovery or approval of unknown devices, validate SNMP reachability,
+validate Telegraf config before activation, or roll back a rejected reload.
+Review middleware and Telegraf logs after each pilot change.
 
 ## 4. Apply identity and security controls
 
@@ -141,13 +153,23 @@ enterprise identity integration.
    in [running.md](running.md), but it starts the demo stack as checked in.
 7. Confirm database schema/migrations and service health. Do not load
    `db/sample_data.sql` in a real deployment.
-8. Enroll one supported pilot device at a time. Add its address to the reviewed
-   Telegraf target configuration as well as the inventory. Confirm SNMP and
+8. Keep the UI in **TEST** mode while preparing the pilot. Enroll only the
+   first supported pilot device in Fleet, and disable monitoring on any other
+   real devices until they are approved for the pilot. Confirm its model is in
+   the catalog, choose v1/v2c, and enter the device's read-only community.
+   Remember that this stores the SNMP community in plaintext.
+9. Review the Fleet inventory and firewall policy. Switch the UI selector to
+   **PRODUCTION** and check the displayed number of monitored real devices
+   before confirming. Cancel and disable unintended devices if the count is
+   greater than the approved pilot scope. Test mode polls only `mock-*`
+   inventory; production mode polls every enabled, enrolled non-mock device.
+   This is a global setting for the NMS instance.
+10. Allow about 15 seconds for target reconciliation, then confirm SNMP and
    ICMP reachability from the actual container/host network namespaces.
-9. Check Telegraf logs and database records for each metric table. Confirm
+11. Check middleware and Telegraf logs and database records for each metric table. Confirm
    device identity, interface indexes, units, timestamps, counter deltas, and
    topology adjacency against the device CLI or an independent SNMP query.
-10. Trigger controlled, approved test conditions (for example, a lab interface
+12. Trigger controlled, approved test conditions (for example, a lab interface
     shutdown or temporary test target) and verify alert creation, recovery,
     timestamps, and operator interpretation. Do not disrupt production links
     just to test alerts.
@@ -180,8 +202,9 @@ Expand beyond the pilot only when all applicable checks pass:
 ## 7. Known product limits to account for
 
 The repository status and roadmap identify several capabilities that affect
-real-world operations: inventory-driven SNMP polling and credential profiles,
-connectivity preflight, full audit controls (person-level attribution,
+real-world operations: protected credential profiles and SNMPv3, subnet
+discovery with operator approval, connectivity preflight, generated-config
+validation and rollback, vendor CPU/memory profiles, full audit controls (person-level attribution,
 before/after changes, SIEM forwarding, retention and tamper protection),
 identity-provider login, notification delivery, SNMP trap/syslog ingestion,
 and production scale validation are incomplete or not implemented. Do not
@@ -189,7 +212,29 @@ assume the presence of these features based on the UI or architecture diagrams.
 Decide whether each is required for the deployment and implement/validate it
 before relying on it.
 
-## 8. Operations after rollout
+The test/production selector is a polling-scope switch, not network discovery
+or a security boundary. It uses the `mock-` hostname prefix to distinguish lab
+devices from production devices. Verify hostnames and inventory before
+switching; production mode can start polling all enabled enrolled non-mock
+devices in this NMS instance. It does not stop the mock containers themselves;
+the production Compose deployment must omit those services as described above.
+
+## 8. Failure modes and recovery checks
+
+| What can go wrong | Likely symptom | What to check / response |
+|---|---|---|
+| Device is not in inventory or monitoring is disabled | No generated target; ICMP/SNMP samples absent | Confirm the saved device IP and monitoring flag in Fleet. This version does not scan CIDRs. |
+| Unsupported SNMP version or blank community | Target is skipped | Check middleware warning logs; use v1/v2c with a non-empty read-only community, or wait for SNMPv3 profile support. |
+| Wrong community, ACL, route, or UDP 161 blocked | Telegraf SNMP timeout/no fresh SNMP rows | Check device ACL/source address, routing, UDP 161, and the credential using an approved SNMP client from the collector network. |
+| ICMP blocked while SNMP works (or vice versa) | Reachability alarm despite SNMP data, or the reverse | Treat ICMP and SNMP as separate probes; confirm each policy and avoid interpreting one as proof of the other. |
+| Device lacks IF-MIB/LLDP access or uses different semantics | Missing interfaces/topology or unexpected counters | Validate MIB view, LLDP, index behavior, and counter widths against vendor documentation and CLI. |
+| Telegraf cannot read the shared generated-config volume | Telegraf exits or never applies a new target | Check `telegraf-config-volume-init` completed, volume owner/group/mode, and Telegraf logs. |
+| Middleware cannot write the generated-config volume | Middleware startup fails or reports sync errors; prior config remains | Check named-volume permissions and free disk space; restore permissions then restart middleware. |
+| Telegraf rejects or fails to reload generated config | New device has no samples while older targets may continue | Inspect Telegraf logs and the generated file inside the container. There is no config validation gate or automatic rollback yet; correct inventory/config and confirm a successful reload. |
+| Database is unavailable during target sync | Middleware logs sync errors | Restore DB connectivity. The last generated file remains in place and sync retries every 15 seconds. |
+| A community is exposed via DB, generated file, Docker host backup, or logs | Credential disclosure | Rotate it on every affected device and in inventory; restrict DB/host/volume/backup access. Current storage is plaintext. |
+
+## 9. Operations after rollout
 
 Document who owns device onboarding, Telegraf config review, credential
 rotation, alarm tuning, database capacity, backups, restore, image updates, and

@@ -69,6 +69,17 @@ Sign in to the command center using the value of `NMS_BOOTSTRAP_TOKEN`. The
 credential is exchanged for an eight-hour HttpOnly session and is not retained
 by the React application.
 
+Use the **Device mode** selector in the top bar to choose the global polling
+scope. New installations start in **TEST**, which includes monitored devices
+ whose hostname begins `mock-`. **PRODUCTION** includes monitored, enrolled
+devices whose hostname does not begin `mock-`; the UI asks for confirmation
+because real SNMP/ICMP collection may begin. Unknown discovered records are
+excluded until they are enrolled as a supported device model. Changes persist
+across restarts. Telegraf updates its target file within about 15 seconds;
+allow the next ICMP/alarm cycles to complete before judging the dashboard.
+The selector changes polling scope only; it does not start or stop mock
+containers. Check Fleet inventory before switching to production.
+
 To display the login credential locally from the repository root:
 
 ```bash
@@ -112,19 +123,25 @@ docker compose exec timescaledb psql -U postgres -d nms_db -c \
 The command center refreshes every 15 seconds. Allow at least one polling cycle
 after all containers have started.
 
-The topology collector walks the standard LLDP-MIB remote systems table for the
-SNMP targets configured in `telegraf.conf`. Devices must have LLDP enabled and
+The topology collector walks the standard LLDP-MIB remote systems table for
+monitored inventory targets. The middleware generates these targets and
+Telegraf watches the shared generated-config volume; do not edit target lists
+in `telegraf.conf`. Devices must have LLDP enabled and
 the configured SNMP credentials must be allowed to read LLDP-MIB. The bundled
 mock `snmpd` agents do not implement LLDP, so an empty topology in the mock lab
 is expected; the application does not invent neighbor links. Newly enrolled
-devices must also be added to Telegraf's SNMP target configuration until
-inventory-driven polling profiles are implemented.
+devices are reconciled into Telegraf's target list within about
+15 seconds. The generator supports only SNMPv1/v2c, and it skips unsupported
+versions or blank communities. Communities are presently stored in plaintext
+in the database and generated file. SNMPv3, protected credential profiles,
+config validation/rollback, and subnet scanning are not implemented.
 
 The Fleet inventory page supports adding, editing, and deleting devices. New
 devices must use a model in the middleware's supported hardware catalog.
-SNMPv2c community values are write-only in the UI: an existing value is never
-returned to the browser, and leaving the edit field blank preserves it. The
-credential-profile workflow and connectivity preflight described in
+SNMP community values are write-only in the UI: an existing value is never
+returned to the browser, and leaving the edit field blank preserves it. New
+devices require an explicit read-only community; the form no longer defaults
+to `public`. The credential-profile workflow and connectivity preflight described in
 `product-future-scope.md` are not implemented yet.
 
 ## Optional demonstration data

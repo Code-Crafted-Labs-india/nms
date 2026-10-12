@@ -13,13 +13,17 @@
 
 ## 1. System architecture overview
 
-The current Compose demo has Telegraf poll statically configured targets and
-write telemetry to TimescaleDB. A Go process reads inventory to run ICMP,
-discovers IPs from recent SNMP interface telemetry, syncs LLDP graph edges,
+The current Compose demo has middleware generate Telegraf targets from monitored
+inventory and write telemetry to TimescaleDB. A persistent Test/Production
+mode scopes target generation, ICMP, alarms, and UI inventory to mock-prefixed
+or non-mock devices. A Go process reads inventory to run ICMP, discovers IPs
+from recent SNMP interface telemetry, syncs LLDP graph edges,
 evaluates six alarm strategies, and serves the REST API. The React application
 calls that API through the Nginx container. Grafana is a separate engineering
-aid. The Compose stack's mock devices and static Telegraf target list are demo
-configuration; inventory CRUD does not configure Telegraf.
+aid. The Compose stack's mock devices and seeded inventory are demo
+configuration. Inventory CRUD now updates generated Telegraf targets for
+SNMPv1/v2c; SNMPv3, protected credentials, subnet discovery, and config
+validation/rollback remain unimplemented.
 
 See [`docs/architecture.md`](docs/architecture.md) for service networks,
 startup sequence, actual data writers/readers, table semantics, API/auth flow,
@@ -97,14 +101,14 @@ Based on [`docs/product-future-scope.md`](docs/product-future-scope.md):
 
 | Scope Item | Priority | Status | Implementation |
 |---|---|---|---|
-| Add-device form and credential-profile APIs | P0 | 🟡 Partial | Inventory now provides Add/Edit/Delete forms backed by authenticated CRUD endpoints and the supported-model catalog. Device fields include address, model, location, SNMP version/community, and monitoring state. Credential profile table and connectivity preflight are still pending. |
+| Add-device form and credential-profile APIs | P0 | 🟡 Partial | Inventory provides Add/Edit/Delete forms backed by authenticated CRUD endpoints and the supported-model catalog. Monitored inventory now generates Telegraf targets for SNMPv1/v2c. Credential profiles, protected secret storage, SNMPv3, and connectivity preflight remain pending. |
 | Fleet inventory with pagination and filters | P0 | ✅ Done | `GET /api/v1/devices` — paginated (50/page), filterable by status, type, hostname/IP search. |
 | Device overview tab | P0 | ✅ Done | `GET /api/v1/devices/{id}` — identity, reachability, CPU/mem, alarm count. |
 | Device interfaces tab | P0 | ✅ Done | Returns per-interface oper/admin/speed/rx/tx/errors/optical in device detail response. |
 | Device events/alarms tab | P0 | ✅ Done | Returns last 50 alarms (resolved + open) per device. Manual resolve via `POST /api/v1/alarms/{id}/resolve`. |
 | Audit trail for device administration | P0 | 🟡 Partial | Metadata-only login/authentication and API activity events are stored in `audit_events`; authenticated operators can read paginated events at `GET /api/v1/audit`. Shared bootstrap authentication means events identify only `bootstrap-admin`, not a person. Field-level before/after diffs, SIEM forwarding, retention controls, and tamper protection remain pending. |
 | Canonical device/interface telemetry normalization | P0 | 🟡 Partial | Telegraf → TimescaleDB raw. Go discovery normalizes devices. Interface join in alarm queries exists but not fully canonical. |
-| Inventory-driven ICMP and SNMP polling | P0 | 🟡 Partial | ICMP sweeps are inventory-driven (`ping` pkg). SNMP still Telegraf-static config. |
+| Inventory-driven ICMP and SNMP polling | P0 | 🟡 Partial | ICMP sweeps are inventory-driven (`ping` pkg). Telegraf targets for SNMPv1/v2c are generated from monitored inventory and reloaded by its config watcher. Protected credentials, SNMPv3, generated-config validation/rollback, and vendor CPU/memory profiles are not implemented. |
 | Stateful alarm schema with fingerprints, transitions, auto-recovery | P0 | 🟡 Partial | `resolved`/`resolved_at` lifecycle and recovery paths exist. Only CPU/memory use a threshold clear margin. Deterministic fingerprints are not enforced; deduplication uses read-before-write. Fresh-schema alarm row IDs also need reconciliation. |
 | Device-down alarm (P0 #1) | P0 | ✅ Done | `DeviceDownStrategy` checks all linked ICMP samples in a fixed one-minute window; any success clears the event and an empty window does not alarm. |
 | Interface-down alarm (P0 #2) | P0 | 🟡 Partial | `LinkStateStrategy` checks normalized rows joined through `interfaces`; checked-in Telegraf writes raw rows without this relationship. |
