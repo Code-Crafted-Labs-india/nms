@@ -25,6 +25,14 @@ configuration. Inventory CRUD now updates generated Telegraf targets for
 SNMPv1/v2c; SNMPv3, protected credentials, subnet discovery, and config
 validation/rollback remain unimplemented.
 
+The Switch Configuration view stores draft VLAN and port membership plans and
+now identifies version-qualified ATS, ATS-3900-24P6X AOS 3.3.1.1, and Routing
+Switch CLI V3.3.1 profiles from recent SNMP `sysDescr` data. The plan API
+repeats detection before saving and rejects stale, unknown, and unsupported
+versions. This is still planning only: the NMS does
+not connect to switches, push configuration, back up running configuration, or
+roll back a change. Other Type 3 models and firmware still need qualification.
+
 See [`docs/architecture.md`](docs/architecture.md) for service networks,
 startup sequence, actual data writers/readers, table semantics, API/auth flow,
 known implementation gaps, and a repository map for manual coding.
@@ -102,6 +110,7 @@ Based on [`docs/product-future-scope.md`](docs/product-future-scope.md):
 | Scope Item | Priority | Status | Implementation |
 |---|---|---|---|
 | Add-device form and credential-profile APIs | P0 | 🟡 Partial | Inventory provides Add/Edit/Delete forms backed by authenticated CRUD endpoints and the supported-model catalog. Monitored inventory now generates Telegraf targets for SNMPv1/v2c. Credential profiles, protected secret storage, SNMPv3, and connectivity preflight remain pending. |
+| Switch configuration planning | P0 | 🟡 Draft-only | The configuration view reads recent SNMP `sysDescr`/`sysObjectID`, detects ATS with a version-qualified profile ID, ATS-3900-24P6X AOS 3.3.1.1, or Routing Switch V3.3.1, and selects the matching CLI preview profile. The API revalidates the profile before saving and records the detected OS/version with the draft. No device connection or apply action, protected write credentials, backup, or rollback. Other Type 3 models and versions remain blocked. |
 | Fleet inventory with pagination and filters | P0 | ✅ Done | `GET /api/v1/devices` — paginated (50/page), filterable by status, type, hostname/IP search. |
 | Device overview tab | P0 | ✅ Done | `GET /api/v1/devices/{id}` — identity, reachability, CPU/mem, alarm count. |
 | Device interfaces tab | P0 | ✅ Done | Returns per-interface oper/admin/speed/rx/tx/errors/optical in device detail response. |

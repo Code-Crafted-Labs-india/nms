@@ -140,6 +140,8 @@ func render(targets []target) string {
 		b.WriteString("  timeout = \"3s\"\n  retries = 2\n  name_override = \"snmp_device_health\"\n")
 		b.WriteString("  [[inputs.snmp.field]]\n    name = \"sysName\"\n    oid = \"1.3.6.1.2.1.1.5.0\"\n    is_tag = true\n")
 		b.WriteString("  [[inputs.snmp.field]]\n    name = \"sysUpTime\"\n    oid = \"1.3.6.1.2.1.1.3.0\"\n\n")
+		b.WriteString("  [[inputs.snmp.field]]\n    name = \"sysDescr\"\n    oid = \"1.3.6.1.2.1.1.1.0\"\n")
+		b.WriteString("  [[inputs.snmp.field]]\n    name = \"sysObjectID\"\n    oid = \"1.3.6.1.2.1.1.2.0\"\n\n")
 
 		writeAgentList(&b, "inputs.snmp", group)
 		b.WriteString("  timeout = \"3s\"\n  retries = 2\n")

@@ -8,10 +8,10 @@
 
 The specification requires an OEM-native or established commercial NMS as the
 primary platform and explicitly excludes a custom solution unless PRL approves
-it. NetPulse is currently a custom-developed monitoring platform and does not
+it. NMS is currently a custom-developed monitoring platform and does not
 meet that product eligibility requirement or the complete feature set. The
 safest response is to propose an OEM/commercial NMS as the primary solution.
-Offer NetPulse only as a supplemental or custom component if PRL approves that
+Offer NMS only as a supplemental or custom component if PRL approves that
 role in writing.
 
 Do not represent roadmap work as delivered capability. Do not mark a line item
@@ -36,7 +36,7 @@ network traffic analysis.
 We understand that the primary NMS must be either supported by the switch OEM
 or be an established, commercially available product with proven deployments,
 vendor support, licensing, documentation, and a maintained upgrade lifecycle.
-Our current NetPulse software is a custom-developed monitoring platform. It
+Our current NMS software is a custom-developed monitoring platform. It
 provides a foundation for inventory, basic telemetry, polling-based alarms,
 device views, and LLDP topology, but it is not currently an OEM-supported or
 commercially established NMS and does not currently provide the full switch
@@ -46,12 +46,12 @@ basic metadata audit log for authentication and API activity is now present,
 but it attributes users only to the shared bootstrap account and does not
 provide before/after change diffs or protected external retention.
 
-Accordingly, we will not represent NetPulse as fully compliant with the
+Accordingly, we will not represent NMS as fully compliant with the
 OEM/commercial-product requirements or claim that planned features are already
 available. Our recommended approach is to nominate a qualifying OEM or
-commercial NMS as the primary platform. NetPulse may be considered for a
+commercial NMS as the primary platform. NMS may be considered for a
 supplementary role only if PRL confirms that such a component is acceptable.
-If PRL wishes to evaluate NetPulse as the primary solution, we request written
+If PRL wishes to evaluate NMS as the primary solution, we request written
 confirmation that PRL will consider an exception to the product eligibility
 clauses before we submit a revised compliance position.
 
@@ -77,7 +77,7 @@ Procurement, license approvals, access/security reviews, device remediation,
 or OEM lead times may extend this range. Some discovery, procurement, and
 architecture work can run in parallel where PRL permits.
 
-If PRL instead approves NetPulse as the primary platform, it should be treated
+If PRL instead approves NMS as the primary platform, it should be treated
 as a product-development program rather than a deployment project. A
 preliminary planning range is **9–15 months or more** for a minimum production
 scope, with a dedicated cross-functional team and phased acceptance. This
@@ -134,7 +134,7 @@ please provide or confirm:
   rollback process, service hours, response times, and support expectations.
 - PRL's interpretation of “access terminals,” “all configurable parameters,”
   “throttle new network connections,” and firmware “downloading.”
-- Confirmation whether NetPulse may be considered only as a supplementary
+- Confirmation whether NMS may be considered only as a supplementary
   component, or whether PRL will consider an exception to the primary-product
   eligibility requirement.
 
@@ -164,7 +164,7 @@ Regards,
 ### Decisions and approvals
 
 - Confirm whether to pursue a supported third-party NMS or seek a written PRL
-  exception for NetPulse. This decision determines whether engineering work is
+  exception for NMS. This decision determines whether engineering work is
   a deployment/integration effort or a major product build.
 - Have procurement/legal verify product eligibility, license terms, OEM
   authorization, support coverage in the region, and any tender requirements.
@@ -184,18 +184,18 @@ Regards,
 - NMS/vendor solution architect and OEM support contact for exact model and
   firmware compatibility.
 - Application/integration engineer for data migration, API/SSO/SIEM/email
-  integrations, and any NetPulse supplemental role.
+  integrations, and any NMS supplemental role.
 - Operations representative(s) from PRL to define alarms, workflows, reports,
   maintenance windows, training, and service acceptance.
 - Procurement/commercial owner for licensing, support, and contract terms.
 
-For a NetPulse product-development path, also plan dedicated backend, frontend,
+For a NMS product-development path, also plan dedicated backend, frontend,
 QA/automation, and device-integration engineering capacity. A small pilot team
 cannot in parallel deliver a mature configuration manager, firmware system,
 multi-vendor adapter set, NTA platform, enterprise identity/audit, and
 production support model without prioritization or schedule growth.
 
-### Technical workstreams if NetPulse is approved
+### Technical workstreams if NMS is approved
 
 1. Product eligibility, ownership, licensing, support, security lifecycle.
 2. RHEL install/upgrade qualification, deployment automation, HA, backup,
@@ -220,7 +220,7 @@ production support model without prioritization or schedule growth.
 
 The 4–7 month commercial-product range is medium confidence only after a
 qualifying product has been identified; procurement and device compatibility
-are the largest unknowns. The 9–15+ month NetPulse range is low confidence
+are the largest unknowns. The 9–15+ month NMS range is low confidence
 because it depends on scope decisions and device-specific API behavior. Either
 range must be re-estimated after discovery using actual device counts,
 interfaces, retention, integrations, security gates, and accepted feature

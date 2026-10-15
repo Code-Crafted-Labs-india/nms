@@ -1,4 +1,4 @@
-# Running NetPulse
+# Running NMS
 
 ## Prerequisites
 

@@ -3,7 +3,7 @@
 ## Purpose
 
 This document converts the supplied NMS reference screens into product
-requirements for NetPulse. The references are used only to identify useful
+requirements for NMS. The references are used only to identify useful
 workflows and data; their visual design and implementation are not copied.
 
 The current implementation provides a shared-token operator UI, inventory

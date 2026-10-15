@@ -105,7 +105,7 @@ monitored devices:
 | Track | Current collection | Destination / consumer |
 |---|---|---|
 | ICMP | `inputs.ping` against monitored inventory IPs, every 15 seconds, two probes | Telegraf PostgreSQL output table `device_health_metrics` (raw plugin fields) |
-| Device identity/uptime | SNMPv1/v2c, standard `sysName` and `sysUpTime` OIDs | `snmp_device_health`; identity/freshness data. Generic CPU and memory polling is not configured |
+| Device identity/uptime | SNMPv1/v2c, standard `sysName`, `sysUpTime`, `sysDescr`, and `sysObjectID` OIDs | `snmp_device_health`; identity/freshness data and configuration-profile detection. Generic CPU and memory polling is not configured |
 | Interfaces | IF-MIB interface table: admin/oper, speed/high speed, HC and legacy counters, errors/discards | `interface_performance_metrics`; device detail currently reads these raw rows |
 | LLDP | LLDP remote-system table every 60 seconds | `snmp_lldp_topology`; Go topology worker |
 
@@ -288,6 +288,9 @@ Routes are registered in [`../main.go`](../main.go); handlers are in
 | `DELETE /api/devices/{id}` | Session + CSRF | Delete inventory record and matching topology edges |
 | `POST /api/v1/alarms/{id}/resolve` | Session + CSRF | Manually resolve event row |
 | `GET /api/v1/audit` | Session | Newest-first paginated audit metadata |
+| `GET /api/v1/configuration/devices` | Session | Current SNMP identity evidence and detected OS/profile eligibility for each monitored device |
+| `GET /api/v1/configuration/plans` | Session | Newest-first list of the latest 100 saved CLI drafts |
+| `POST /api/v1/configuration/plans` | Session + CSRF | Validate and save a VLAN or switchport command preview; never contacts a device |
 
 `handlers/security.go` holds sessions in process memory for eight hours. Login
 uses a shared bootstrap token and assigns the actor `bootstrap-admin`; restarting
@@ -310,6 +313,26 @@ authentication state, detail panels and refresh timer. Once authenticated, the
 main dashboard data is refreshed every 15 seconds. Nginx serves the built UI
 and proxies `/api/` to the middleware. Grafana is separate and is not used by
 the React application for its data.
+
+The Switch Configuration view saves draft plans for VLAN creation and
+access/trunk port membership. Telegraf collects `sysDescr` and `sysObjectID`
+with each identity poll. The configuration-device endpoint uses a system
+description no older than 15 minutes to identify ATS and Routing Switch
+profiles. ATS profile IDs include the reported release (for example,
+`ats-cli@<version>`); Routing Switch commands are enabled only for version
+3.3.1. The Type 3 ATS-3900-24P6X profile is enabled only for AOS 3.3.1.1 and
+uses the documented `config`, `vlan-view`, and `switchport` command syntax.
+Unknown, stale, or unqualified versions cannot create a draft, and the POST
+handler rechecks the current device identity instead of trusting the profile
+sent by the browser. The supplied private MIB has a version scalar under its
+enterprise tree, but its `operate` parent declaration is commented out and it
+does not identify the ATS-3900 product; NMS therefore does not poll that
+unverified OID. Other Type 3 models and firmware still need qualification.
+These profiles generate reviewable CLI text
+only. No SSH connection, device write credential, apply operation, backup, or
+rollback is implemented. The `configuration_changes` table is an operational
+draft queue, not a device configuration archive or a complete change-control
+ledger.
 
 To trace a user-visible field end-to-end, follow this chain:
 
@@ -372,7 +395,9 @@ To trace a user-visible field end-to-end, follow this chain:
 - Automatic canonical interface inventory population and normalization of the
   raw Telegraf IF-MIB rows used by the two interface-state strategies.
 - The full client alarm list, traps, syslog, email/SMS/webhook delivery, or
-  configuration changes pushed to routers/switches.
+  configuration changes pushed to routers/switches. The current configuration
+  page only validates and stores VLAN/switchport command drafts for the
+  documentation-backed profiles listed above.
 - Per-user identity, SSO, granular roles, audit retention controls, or a
   tamper-evident audit store.
 - A tested scale envelope, HA deployment, backup/restore procedure, retention

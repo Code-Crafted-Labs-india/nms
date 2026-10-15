@@ -1,0 +1,4 @@
+interface:
+  display_name: "Taste"
+  short_description: "Design and polish the NMS web interface"
+  default_prompt: "Use $taste to improve this NMS UI while preserving its behavior and visual identity."

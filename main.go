@@ -145,6 +145,11 @@ func main() {
 	// Alarm management: manual resolve
 	mux.Handle("POST /api/v1/alarms/{id}/resolve", audited("alarms.resolve", handlers.ResolveAlarmHandler(database)))
 	mux.Handle("GET /api/v1/audit", audited("audit.read", handlers.AuditEventsHandler(database)))
+	mux.Handle("GET /api/v1/configuration/devices", audited("configuration.devices.read", handlers.ConfigurationDevicesHandler(database)))
+	mux.Handle("OPTIONS /api/v1/configuration/devices", handlers.RequestLogger(handlers.PreflightHandler()))
+	mux.Handle("GET /api/v1/configuration/plans", audited("configuration.plans.read", handlers.ConfigurationPlansHandler(database)))
+	mux.Handle("POST /api/v1/configuration/plans", audited("configuration.plans.create", handlers.ConfigurationPlansHandler(database)))
+	mux.Handle("OPTIONS /api/v1/configuration/plans", handlers.RequestLogger(handlers.PreflightHandler()))
 
 	// Listen on the container interface so the UI proxy and other attached
 	// services can reach the API. Compose does not publish this port to the host.

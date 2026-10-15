@@ -59,6 +59,7 @@ services:
   # =========================================================================
   nms-middleware:
     build: .
+    image: ritiklrt/nms-middleware:${NMS_IMAGE_TAG:-latest}
     container_name: nms-middleware
     expose:
       - "8080"
@@ -97,6 +98,7 @@ services:
   nms-ui:
     build:
       context: ./ui
+    image: ritiklrt/nms-ui:${NMS_IMAGE_TAG:-latest}
     container_name: nms-ui
     ports:
       - "${NMS_BIND_ADDRESS:-127.0.0.1}:3000:8080"

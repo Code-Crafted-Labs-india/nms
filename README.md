@@ -58,6 +58,35 @@ command-center login. Retrieval and rotation instructions are in
 approved TLS in front of the UI and complete the controls in
 `docs/ui-security-baseline.md`; the loopback HTTP binding is development only.
 
+### Publish deployment images to Docker Hub
+
+The middleware and UI images are tagged as `ritiklrt/nms-middleware` and
+`ritiklrt/nms-ui`. Authenticate with a Docker Hub access token using Docker's
+interactive login, then push a versioned multi-platform tag:
+
+```bash
+docker login --username ritiklrt
+./scripts/push-images.sh 1.0.0
+```
+
+The script pushes both the requested tag and `latest` for `linux/amd64` and
+`linux/arm64`. To target a different platform set, pass it as the second
+argument, for example `./scripts/push-images.sh 1.0.0 linux/amd64`.
+
+On the deployment host, set the same version tag and pull/start the NMS
+services without building from source:
+
+```bash
+export NMS_IMAGE_TAG=1.0.0
+docker login --username ritiklrt
+docker compose pull nms-middleware nms-ui
+docker compose up --no-build -d timescaledb telegraf-config-volume-init nms-middleware telegraf nms-ui
+```
+
+Keep `.env`, `migration.sql`, and the reviewed Telegraf configuration with the
+deployment files. The command above omits mock devices and Grafana; add those
+services only when they are wanted in that environment.
+
 ### Complete Environment Initialization
 
 Spin up the coordinated core pipeline infrastructure stack using Docker Compose:

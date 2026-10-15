@@ -1,6 +1,6 @@
 # Real-world deployment guide
 
-This guide describes how to prepare NetPulse for a controlled deployment that
+This guide describes how to prepare NMS for a controlled deployment that
 polls real network equipment. It is a deployment and pilot guide, not a claim
 that this repository is production-certified. The current Compose stack is a
 development/demo environment: it includes simulated devices and demo inventory,
