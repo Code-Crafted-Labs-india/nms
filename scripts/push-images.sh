@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-readonly DOCKERHUB_USER="ritiklrt"
+readonly DOCKERHUB_USER="ritiklrt2"
 readonly ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
 IMAGE_TAG="${1:-}"
@@ -36,7 +36,7 @@ if ! docker buildx version >/dev/null 2>&1; then
   exit 127
 fi
 
-echo "Pushing NMS images to Docker Hub as ${DOCKERHUB_USER} (tag: ${IMAGE_TAG})."
+echo "Pushing NetPulse images to Docker Hub as ${DOCKERHUB_USER} (tag: ${IMAGE_TAG})."
 echo "Platforms: ${PLATFORMS}"
 echo "If needed, authenticate first with: docker login --username ${DOCKERHUB_USER}"
 
