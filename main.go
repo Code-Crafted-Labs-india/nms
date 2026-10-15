@@ -15,6 +15,7 @@ import (
 	"nms-middleware/discovery"
 	"nms-middleware/handlers"
 	"nms-middleware/ping"
+	"nms-middleware/telegrafconfig"
 	"nms-middleware/topology"
 )
 
@@ -85,6 +86,17 @@ func main() {
 		os.Exit(1)
 	}
 
+	// Render the initial Telegraf input config before the collector is marked
+	// healthy; later inventory changes are reconciled by the background loop.
+	telegrafConfigDir := os.Getenv("NMS_TELEGRAF_CONFIG_DIR")
+	if telegrafConfigDir != "" {
+		if _, err := telegrafconfig.Sync(ctx, database, telegrafConfigDir, logger); err != nil {
+			logger.Error("failed to render initial Telegraf config", "error", err)
+			os.Exit(1)
+		}
+		go telegrafconfig.Start(ctx, database, telegrafConfigDir, 15*time.Second, logger)
+	}
+
 	app.logger.Info("NMS Go Middleware application initialized successfully. Listening for pipeline updates...")
 
 	// 2. Launch background engine loops
@@ -118,6 +130,8 @@ func main() {
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusNoContent) })
 	mux.Handle("/api/session", handlers.RequestLogger(http.HandlerFunc(sessions.HandleSession)))
 	mux.Handle("GET /api/v1/dashboard", audited("dashboard.read", handlers.DashboardHandler(database)))
+	mux.Handle("GET /api/v1/monitoring-mode", audited("monitoring_mode.read", handlers.MonitoringModeHandler(database)))
+	mux.Handle("PUT /api/v1/monitoring-mode", audited("monitoring_mode.update", handlers.MonitoringModeHandler(database)))
 	mux.Handle("GET /api/v1/device-models", audited("device_models.read", handlers.DeviceModelsHandler(database)))
 	mux.Handle("POST /api/devices", audited("devices.create", handlers.AddDeviceHandler(database)))
 	mux.Handle("PUT /api/devices/{id}", audited("devices.update", handlers.EditDeviceHandler(database)))
@@ -131,6 +145,11 @@ func main() {
 	// Alarm management: manual resolve
 	mux.Handle("POST /api/v1/alarms/{id}/resolve", audited("alarms.resolve", handlers.ResolveAlarmHandler(database)))
 	mux.Handle("GET /api/v1/audit", audited("audit.read", handlers.AuditEventsHandler(database)))
+	mux.Handle("GET /api/v1/configuration/devices", audited("configuration.devices.read", handlers.ConfigurationDevicesHandler(database)))
+	mux.Handle("OPTIONS /api/v1/configuration/devices", handlers.RequestLogger(handlers.PreflightHandler()))
+	mux.Handle("GET /api/v1/configuration/plans", audited("configuration.plans.read", handlers.ConfigurationPlansHandler(database)))
+	mux.Handle("POST /api/v1/configuration/plans", audited("configuration.plans.create", handlers.ConfigurationPlansHandler(database)))
+	mux.Handle("OPTIONS /api/v1/configuration/plans", handlers.RequestLogger(handlers.PreflightHandler()))
 
 	// Listen on the container interface so the UI proxy and other attached
 	// services can reach the API. Compose does not publish this port to the host.

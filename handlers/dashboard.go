@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"context"
+	"fmt"
 	"net/http"
 	"time"
 
@@ -67,7 +68,8 @@ func DashboardHandler(database *db.DB) http.HandlerFunc {
 			Devices:     []DeviceStatus{}, Events: []Event{}, Latency: []MetricPoint{}, CPU: []MetricPoint{}, Memory: []MetricPoint{}, Topology: []TopologyEdge{},
 		}
 
-		err := database.Pool.QueryRow(ctx, `
+		scope := deviceModePredicate("d")
+		err := database.Pool.QueryRow(ctx, fmt.Sprintf(`
 			WITH latest AS (
 				SELECT DISTINCT ON (device_id) device_id, icmp_status
 				FROM device_health_metrics WHERE time > NOW() - INTERVAL '5 minutes'
@@ -76,15 +78,16 @@ func DashboardHandler(database *db.DB) http.HandlerFunc {
 			SELECT COUNT(*) FILTER (WHERE d.is_monitored),
 			       COUNT(*) FILTER (WHERE d.is_monitored AND l.icmp_status = 1),
 			       COUNT(*) FILTER (WHERE d.is_monitored AND COALESCE(l.icmp_status, 0) = 0),
-			       (SELECT COUNT(*) FROM network_events WHERE resolved = FALSE)
+			       (SELECT COUNT(*) FROM network_events e JOIN devices ed ON ed.id = e.device_id WHERE e.resolved = FALSE AND %s)
 			FROM devices d LEFT JOIN latest l ON l.device_id = d.id
-		`).Scan(&payload.Overview.Monitored, &payload.Overview.Online, &payload.Overview.Offline, &payload.Overview.OpenAlerts)
+			WHERE %s
+		`, deviceModePredicate("ed"), scope)).Scan(&payload.Overview.Monitored, &payload.Overview.Online, &payload.Overview.Offline, &payload.Overview.OpenAlerts)
 		if err != nil {
 			jsonResponse(w, http.StatusInternalServerError, map[string]string{"error": "dashboard query failed"})
 			return
 		}
 
-		rows, err := database.Pool.Query(ctx, `
+		rows, err := database.Pool.Query(ctx, fmt.Sprintf(`
 			SELECT d.id, d.hostname, d.ip_address::text, d.device_type, COALESCE(d.location, 'Unassigned'),
 			       CASE WHEN m.icmp_status = 1 THEN 'online' ELSE 'offline' END,
 			       m.icmp_rtt_ms, to_char(m.time AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"')
@@ -92,8 +95,8 @@ func DashboardHandler(database *db.DB) http.HandlerFunc {
 			LEFT JOIN LATERAL (
 				SELECT icmp_status, icmp_rtt_ms, time FROM device_health_metrics
 				WHERE device_id = d.id ORDER BY time DESC LIMIT 1
-			) m ON TRUE WHERE d.is_monitored ORDER BY d.hostname
-		`)
+			) m ON TRUE WHERE d.is_monitored AND %s ORDER BY d.hostname
+		`, scope))
 		if err != nil {
 			jsonResponse(w, http.StatusInternalServerError, map[string]string{"error": "device query failed"})
 			return
@@ -109,7 +112,7 @@ func DashboardHandler(database *db.DB) http.HandlerFunc {
 		}
 		rows.Close()
 
-		eventRows, err := database.Pool.Query(ctx, `SELECT e.time, COALESCE(d.hostname, 'System'), e.severity, e.event_type, COALESCE(e.message, '') FROM network_events e LEFT JOIN devices d ON d.id=e.device_id WHERE e.resolved=FALSE ORDER BY e.time DESC LIMIT 20`)
+		eventRows, err := database.Pool.Query(ctx, fmt.Sprintf(`SELECT e.time, COALESCE(d.hostname, 'System'), e.severity, e.event_type, COALESCE(e.message, '') FROM network_events e LEFT JOIN devices d ON d.id=e.device_id WHERE e.resolved=FALSE AND (d.id IS NULL OR %s) ORDER BY e.time DESC LIMIT 20`, deviceModePredicate("d")))
 		if err == nil {
 			for eventRows.Next() {
 				var e Event
@@ -122,11 +125,11 @@ func DashboardHandler(database *db.DB) http.HandlerFunc {
 			eventRows.Close()
 		}
 
-		payload.Latency = metricSeries(ctx, database, `SELECT m.time, d.hostname, COALESCE(m.icmp_rtt_ms, 0) FROM device_health_metrics m JOIN devices d ON d.id=m.device_id WHERE m.time > NOW()-INTERVAL '30 minutes' ORDER BY m.time`)
-		payload.CPU = metricSeries(ctx, database, `SELECT h.time, COALESCE(d.hostname,h.agent_host,h."sysName",'Unknown'), COALESCE(100.0-h.cpu_idle, LEAST(h.cpu_load_1*25.0,100.0),0) FROM snmp_device_health h LEFT JOIN devices d ON d.ip_address=NULLIF(h.agent_host,'')::inet WHERE h.time > NOW()-INTERVAL '30 minutes' ORDER BY h.time`)
-		payload.Memory = metricSeries(ctx, database, `SELECT h.time, COALESCE(d.hostname,h.agent_host,h."sysName",'Unknown'), COALESCE(100.0*(h.mem_total_kb-h.mem_available_kb)/NULLIF(h.mem_total_kb,0),0) FROM snmp_device_health h LEFT JOIN devices d ON d.ip_address=NULLIF(h.agent_host,'')::inet WHERE h.time > NOW()-INTERVAL '30 minutes' ORDER BY h.time`)
+		payload.Latency = metricSeries(ctx, database, fmt.Sprintf(`SELECT m.time, d.hostname, COALESCE(m.icmp_rtt_ms, 0) FROM device_health_metrics m JOIN devices d ON d.id=m.device_id WHERE m.time > NOW()-INTERVAL '30 minutes' AND %s ORDER BY m.time`, deviceModePredicate("d")))
+		payload.CPU = metricSeries(ctx, database, fmt.Sprintf(`SELECT h.time, COALESCE(d.hostname,h.agent_host,h."sysName",'Unknown'), COALESCE(100.0-h.cpu_idle, LEAST(h.cpu_load_1*25.0,100.0),0) FROM snmp_device_health h JOIN devices d ON d.ip_address=NULLIF(h.agent_host,'')::inet WHERE h.time > NOW()-INTERVAL '30 minutes' AND %s ORDER BY h.time`, deviceModePredicate("d")))
+		payload.Memory = metricSeries(ctx, database, fmt.Sprintf(`SELECT h.time, COALESCE(d.hostname,h.agent_host,h."sysName",'Unknown'), COALESCE(100.0*(h.mem_total_kb-h.mem_available_kb)/NULLIF(h.mem_total_kb,0),0) FROM snmp_device_health h JOIN devices d ON d.ip_address=NULLIF(h.agent_host,'')::inet WHERE h.time > NOW()-INTERVAL '30 minutes' AND %s ORDER BY h.time`, deviceModePredicate("d")))
 
-		topologyRows, err := database.Pool.Query(ctx, `SELECT id::text, source_device, target_device, COALESCE(source_port,''), COALESCE(target_port,'') FROM network_topology ORDER BY source_device, target_device`)
+		topologyRows, err := database.Pool.Query(ctx, fmt.Sprintf(`SELECT t.id::text, t.source_device, t.target_device, COALESCE(t.source_port,''), COALESCE(t.target_port,'') FROM network_topology t JOIN devices d ON d.hostname=t.source_device WHERE d.is_monitored AND %s ORDER BY t.source_device, t.target_device`, deviceModePredicate("d")))
 		if err == nil {
 			for topologyRows.Next() {
 				var edge TopologyEdge

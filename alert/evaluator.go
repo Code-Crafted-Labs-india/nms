@@ -62,7 +62,13 @@ func (eve *EvaluateEngine) StartWorkerPool(ctx context.Context, workerCount int,
 			case <-ticker.C:
 				eve.logger.Info("Interval tick hit. Orchestrating device evaluation passes.")
 
-				rows, err := eve.db.Pool.Query(ctx, "SELECT id FROM devices WHERE is_monitored = true")
+				rows, err := eve.db.Pool.Query(ctx, `
+					SELECT d.id FROM devices d
+					WHERE d.is_monitored = TRUE
+					  AND d.device_type <> 'unknown_discovered'
+					  AND ((SELECT setting_value FROM nms_runtime_settings WHERE setting_key = 'monitoring_mode') = 'test' AND LOWER(d.hostname) LIKE 'mock-%'
+					    OR (SELECT setting_value FROM nms_runtime_settings WHERE setting_key = 'monitoring_mode') = 'production' AND LOWER(d.hostname) NOT LIKE 'mock-%')
+				`)
 				if err != nil {
 					eve.logger.Error("Failed to fetch monitored devices from directory", "err", err)
 					continue

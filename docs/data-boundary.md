@@ -1,8 +1,8 @@
 # Data boundary and outbound traffic
 
-NetPulse is designed to run inside the operator's environment. Inventory,
+NMS is designed to run inside the operator's environment. Inventory,
 topology, metrics, alarms, and credentials are stored in the local deployment
-and are not sent to a NetPulse-hosted service by the application.
+and are not sent to a NMS-hosted service by the application.
 
 ## Application traffic
 

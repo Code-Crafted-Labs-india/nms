@@ -147,6 +147,18 @@ var schema = []tableSpec{
 		},
 	},
 	{
+		name: "nms_runtime_settings",
+		createDDL: `CREATE TABLE IF NOT EXISTS nms_runtime_settings (
+			setting_key TEXT PRIMARY KEY,
+			setting_value TEXT NOT NULL,
+			updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+		)`,
+		columns: []columnSpec{
+			{name: "setting_value", dataType: "TEXT", allowNull: false},
+			{name: "updated_at", dataType: "TIMESTAMPTZ", allowNull: false},
+		},
+	},
+	{
 		// Ensure the resolution timestamp exists on the alarm-event hypertable.
 		// alarm_id catalog:
 		//   1=device_down  2=link_down  3=high_cpu  4=admin_oper_mismatch
@@ -178,6 +190,30 @@ var schema = []tableSpec{
 			{name: "status_code", dataType: "INTEGER", allowNull: false},
 		},
 	},
+	{
+		name: "configuration_changes",
+		createDDL: `CREATE TABLE IF NOT EXISTS configuration_changes (
+			id BIGSERIAL PRIMARY KEY,
+			device_id INTEGER NOT NULL REFERENCES devices(id) ON DELETE CASCADE,
+			profile TEXT NOT NULL,
+			operation TEXT NOT NULL,
+			parameters JSONB NOT NULL,
+			commands TEXT[] NOT NULL,
+			status TEXT NOT NULL DEFAULT 'draft' CHECK (status IN ('draft')),
+			created_by TEXT NOT NULL,
+			created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+		)`,
+		columns: []columnSpec{
+			{name: "device_id", dataType: "INTEGER", allowNull: false},
+			{name: "profile", dataType: "TEXT", allowNull: false},
+			{name: "operation", dataType: "TEXT", allowNull: false},
+			{name: "parameters", dataType: "JSONB", allowNull: false},
+			{name: "commands", dataType: "TEXT[]", allowNull: false},
+			{name: "status", dataType: "TEXT", allowNull: false},
+			{name: "created_by", dataType: "TEXT", allowNull: false},
+			{name: "created_at", dataType: "TIMESTAMPTZ", allowNull: false},
+		},
+	},
 }
 
 // RunMigrations applies the selected idempotent schema repairs and catalog seed
@@ -190,10 +226,42 @@ func RunMigrations(ctx context.Context, database *DB, logger *slog.Logger) error
 			return fmt.Errorf("schema sync failed on table '%s': %w", table.name, err)
 		}
 	}
+	if _, err := database.Pool.Exec(ctx, `
+		CREATE TABLE IF NOT EXISTS snmp_device_health (
+			time TIMESTAMPTZ NOT NULL,
+			agent_host TEXT,
+			host TEXT,
+			"sysName" TEXT,
+			"sysUpTime" BIGINT,
+			"sysDescr" TEXT,
+			"sysObjectID" TEXT,
+			cpu_idle DOUBLE PRECISION,
+			cpu_load_1 DOUBLE PRECISION,
+			mem_total_kb BIGINT,
+			mem_available_kb BIGINT
+		);
+	`); err != nil {
+		return fmt.Errorf("SNMP identity schema synchronization failed: %w", err)
+	}
+	if _, err := database.Pool.Exec(ctx, `
+		ALTER TABLE snmp_device_health
+			ADD COLUMN IF NOT EXISTS "sysUpTime" BIGINT,
+			ADD COLUMN IF NOT EXISTS "sysDescr" TEXT,
+			ADD COLUMN IF NOT EXISTS "sysObjectID" TEXT
+	`); err != nil {
+		return fmt.Errorf("SNMP identity columns synchronization failed: %w", err)
+	}
 
 	// Seed the device_models catalog after the table is confirmed to exist.
 	if err := seedDeviceModels(ctx, database, logger); err != nil {
 		return fmt.Errorf("device_models seeding failed: %w", err)
+	}
+	if _, err := database.Pool.Exec(ctx, `
+		INSERT INTO nms_runtime_settings (setting_key, setting_value)
+		VALUES ('monitoring_mode', 'test')
+		ON CONFLICT (setting_key) DO NOTHING
+	`); err != nil {
+		return fmt.Errorf("monitoring mode initialization failed: %w", err)
 	}
 
 	if err := verifyDeviceModelCount(ctx, database, logger); err != nil {
@@ -201,6 +269,9 @@ func RunMigrations(ctx context.Context, database *DB, logger *slog.Logger) error
 	}
 	if _, err := database.Pool.Exec(ctx, `CREATE INDEX IF NOT EXISTS idx_audit_events_occurred_at ON audit_events (occurred_at DESC)`); err != nil {
 		return fmt.Errorf("audit event index creation failed: %w", err)
+	}
+	if _, err := database.Pool.Exec(ctx, `CREATE INDEX IF NOT EXISTS idx_configuration_changes_created_at ON configuration_changes (created_at DESC)`); err != nil {
+		return fmt.Errorf("configuration plan index creation failed: %w", err)
 	}
 
 	logger.Info("[Schema Sync] Selected schema checks completed.")
@@ -351,6 +422,9 @@ type deviceModel struct {
 // To register a new model, append an entry here — RunMigrations will detect it is
 // absent from the DB and insert it automatically on the next startup.
 var deviceModelCatalog = []deviceModel{
+	// ATS-3900-24P6X — Type 3 command reference and AOS 3.3.1.1 evidence.
+	{Series: "ATS-3900", ModelName: "ATS-3900-24P6X"},
+
 	// Cisco NCS 540 Series — sysObjectID: 1.3.6.1.4.1.9.1.3009
 	{Series: "NCS-540", ModelName: "NCS 540"},
 
@@ -432,7 +506,14 @@ func (db *DB) Close() {
 }
 
 func (db *DB) SelectIdAndIp(ctx context.Context) (pgx.Rows, error) {
-	res, err := db.Pool.Query(ctx, "SELECT id, ip_address::text FROM devices WHERE is_monitored = true")
+	res, err := db.Pool.Query(ctx, `
+		SELECT d.id, d.ip_address::text
+		FROM devices d
+		WHERE d.is_monitored = TRUE
+		  AND d.device_type <> 'unknown_discovered'
+		  AND ((SELECT setting_value FROM nms_runtime_settings WHERE setting_key = 'monitoring_mode') = 'test' AND LOWER(d.hostname) LIKE 'mock-%'
+		    OR (SELECT setting_value FROM nms_runtime_settings WHERE setting_key = 'monitoring_mode') = 'production' AND LOWER(d.hostname) NOT LIKE 'mock-%')
+	`)
 	if err != nil {
 		return nil, err
 	}

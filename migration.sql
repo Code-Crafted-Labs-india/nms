@@ -9,6 +9,16 @@ CREATE TABLE IF NOT EXISTS device_models (
     model_name TEXT NOT NULL UNIQUE
 );
 
+CREATE TABLE IF NOT EXISTS nms_runtime_settings (
+    setting_key TEXT PRIMARY KEY,
+    setting_value TEXT NOT NULL,
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+INSERT INTO nms_runtime_settings (setting_key, setting_value)
+VALUES ('monitoring_mode', 'test')
+ON CONFLICT (setting_key) DO NOTHING;
+
 CREATE TABLE IF NOT EXISTS devices (
     id SERIAL PRIMARY KEY,
     hostname VARCHAR(255) NOT NULL UNIQUE,
@@ -102,6 +112,9 @@ CREATE TABLE IF NOT EXISTS snmp_device_health (
     agent_host TEXT,
     host TEXT,
     "sysName" TEXT,
+    "sysUpTime" BIGINT,
+    "sysDescr" TEXT,
+    "sysObjectID" TEXT,
     cpu_idle DOUBLE PRECISION,
     cpu_load_1 DOUBLE PRECISION,
     mem_total_kb BIGINT,
@@ -109,6 +122,9 @@ CREATE TABLE IF NOT EXISTS snmp_device_health (
 );
 
 ALTER TABLE snmp_device_health
+    ADD COLUMN IF NOT EXISTS "sysUpTime" BIGINT,
+    ADD COLUMN IF NOT EXISTS "sysDescr" TEXT,
+    ADD COLUMN IF NOT EXISTS "sysObjectID" TEXT,
     ADD COLUMN IF NOT EXISTS cpu_idle DOUBLE PRECISION,
     ADD COLUMN IF NOT EXISTS cpu_load_1 DOUBLE PRECISION,
     ADD COLUMN IF NOT EXISTS mem_total_kb BIGINT,
@@ -140,6 +156,22 @@ CREATE TABLE IF NOT EXISTS audit_events (
     path TEXT NOT NULL DEFAULT '',
     status_code INTEGER NOT NULL DEFAULT 0
 );
+
+-- Configuration plans are review artifacts only. Device execution is not
+-- enabled until a tested vendor adapter and protected credential store exist.
+CREATE TABLE IF NOT EXISTS configuration_changes (
+    id BIGSERIAL PRIMARY KEY,
+    device_id INTEGER NOT NULL REFERENCES devices(id) ON DELETE CASCADE,
+    profile TEXT NOT NULL,
+    operation TEXT NOT NULL,
+    parameters JSONB NOT NULL,
+    commands TEXT[] NOT NULL,
+    status TEXT NOT NULL DEFAULT 'draft' CHECK (status IN ('draft')),
+    created_by TEXT NOT NULL,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_configuration_changes_created_at
+    ON configuration_changes (created_at DESC);
 
 CREATE TABLE IF NOT EXISTS network_topology (
     id SERIAL PRIMARY KEY,

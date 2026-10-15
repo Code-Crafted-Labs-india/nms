@@ -3,7 +3,7 @@
 ## Purpose
 
 This document converts the supplied NMS reference screens into product
-requirements for NetPulse. The references are used only to identify useful
+requirements for NMS. The references are used only to identify useful
 workflows and data; their visual design and implementation are not copied.
 
 The current implementation provides a shared-token operator UI, inventory
@@ -192,8 +192,20 @@ Before adding more alarm rules, complete the shared telemetry and state model:
 
 - Normalize Telegraf fields such as `ifIndex`, `ifOperStatus`, counters, and
   device identity into canonical device/interface records before evaluation.
-- Replace hard-coded polling targets with inventory-driven polling profiles so
-  onboarding a monitored device activates ICMP and SNMP collection.
+- Add autonomous subnet discovery with operator approval. Current target
+  generation is inventory-driven: an operator must first add a device.
+- Add connectivity preflight and per-device poll/reconciliation status so
+  operators can distinguish saved inventory from an actively polled target.
+- Store credential profiles separately from device records, protect secrets
+  at rest, and render them through a protected secret mechanism. Current
+  SNMPv1/v2c communities are plaintext in the database and generated file;
+  SNMPv3 credentials are not supported by the generator.
+- Validate generated Telegraf configuration before activation, report whether
+  the new configuration was applied, and define rollback for rejected reloads.
+  Current generated files are replaced atomically, but there is no validation
+  gate, reload-status API, or automatic rollback.
+- Add vendor/model polling profiles for CPU and memory. Current generic
+  polling covers standard system identity/uptime, IF-MIB, and LLDP-MIB only.
 - Record every poll attempt with protocol, start/end time, success, failure
   category, duration, collector identity, and last-success time.
 - Identify an alarm by a stable alarm code, device, resource type, resource ID,

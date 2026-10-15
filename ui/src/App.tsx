@@ -4,17 +4,18 @@ import {
   Activity, AlertTriangle, Bell, CheckCircle, ChevronLeft, ChevronRight, ClipboardList,
   CircleCheck, Cpu, Filter, LayoutDashboard, LockKeyhole, LogOut,
   MemoryStick, Network, Plus, Radio, RefreshCw, Search,
-  Server, ShieldCheck, Wifi, WifiOff, X, Zap,
+  Server, ShieldCheck, Wifi, WifiOff, X, Zap, Settings2, ShieldAlert, Save,
   Pencil, Trash2,
 } from 'lucide-react'
 import {
   ApiError, dashboardApi,
   type DashboardData, type MetricPoint,
   type InventoryDevice, type DeviceDetail, type DeviceAlarm, type DeviceInterface,
-  type DeviceModel, type DevicePayload, type AuditEvent,
+  type DeviceModel, type DevicePayload, type AuditEvent, type MonitoringMode, type MonitoringModeState,
+  type ConfigurationPlan, type ConfigurationPlanRequest, type ConfigurationDevice,
 } from './api'
 
-type View = 'overview' | 'topology' | 'alerts' | 'inventory' | 'audit'
+type View = 'overview' | 'topology' | 'alerts' | 'inventory' | 'configuration' | 'audit'
 const emptyDashboard: DashboardData = {
   generatedAt: '', overview: { monitored: 0, online: 0, offline: 0, openAlerts: 0 },
   devices: [], events: [], latency: [], cpu: [], memory: [], topology: [],
@@ -34,7 +35,7 @@ function Login({ onAuthenticated }: { onAuthenticated: () => void }) {
   return <main className="grid min-h-screen place-items-center bg-[#07100f] px-6 text-slate-100">
     <div className="absolute inset-0 bg-[radial-gradient(circle_at_50%_0%,rgba(36,211,164,.12),transparent_42%)]" />
     <section className="relative w-full max-w-md rounded-2xl border border-white/10 bg-[#0c1716]/95 p-8 shadow-2xl shadow-black/40">
-      <div className="mb-8 flex items-center gap-3"><img src="/ccl-logo-dark.png" alt="Code Crafted Labs" className="size-12 rounded-full object-cover"/><div><p className="text-xs font-semibold uppercase tracking-[.18em] text-[#d6ff8a]">Code Crafted Labs</p><h1 className="text-xl font-semibold">NetPulse operations</h1></div></div>
+      <div className="mb-8 flex items-center gap-3"><img src="/ccl-logo-dark.png" alt="Code Crafted Labs" className="size-12 rounded-full object-cover"/><div><p className="text-xs font-semibold uppercase tracking-[.18em] text-[#d6ff8a]">Code Crafted Labs</p><h1 className="text-xl font-semibold">NMS operations</h1></div></div>
       <div className="mb-6 rounded-lg border border-white/8 bg-white/[.025] p-4 text-sm leading-6 text-slate-400"><div className="mb-1 flex items-center gap-2 font-medium text-slate-200"><LockKeyhole size={15} /> Restricted system</div>Authorized personnel only. Activity is subject to monitoring and audit.</div>
       <form onSubmit={submit}><label className="mb-2 block text-xs font-semibold uppercase tracking-wider text-slate-400" htmlFor="access-token">Operator credential</label><input id="access-token" type="password" autoComplete="current-password" required minLength={32} value={token} onChange={e => setToken(e.target.value)} className="w-full rounded-lg border border-white/10 bg-black/20 px-4 py-3 text-sm outline-none transition focus:border-emerald-400/60 focus:ring-2 focus:ring-emerald-400/10" />{error && <p role="alert" className="mt-3 text-sm text-rose-300">{error}</p>}<button disabled={busy} className="mt-5 flex w-full items-center justify-center gap-2 rounded-lg bg-emerald-400 px-4 py-3 text-sm font-bold text-[#06100e] transition hover:bg-emerald-300 disabled:opacity-50">{busy ? <RefreshCw className="animate-spin" size={16} /> : <LockKeyhole size={16} />} Authenticate</button></form>
       <p className="mt-6 text-center text-xs text-slate-600">Credentials are exchanged for an HttpOnly session and are never stored by this client.</p>
@@ -198,6 +199,97 @@ function AuditView() {
       {!events.length&&!error&&<div className="grid place-items-center gap-3 p-12 text-sm text-slate-500"><ClipboardList size={25}/>No audit events recorded yet</div>}
     </div>}
   </section>
+}
+
+function ConfigurationView() {
+  const [devices,setDevices] = useState<ConfigurationDevice[]>([])
+  const [plans,setPlans] = useState<ConfigurationPlan[]>([])
+  const [deviceID,setDeviceID] = useState('')
+  const [operation,setOperation] = useState<'create_vlan'|'configure_port'>('create_vlan')
+  const [vlanID,setVlanID] = useState('10')
+  const [vlanName,setVlanName] = useState('users')
+  const [iface,setIface] = useState('eth-0-1')
+  const [portMode,setPortMode] = useState<'access'|'trunk'>('access')
+  const [allowed,setAllowed] = useState('10,20')
+  const [preview,setPreview] = useState<string[]>([])
+  const [busy,setBusy] = useState(false)
+  const [loading,setLoading] = useState(true)
+  const [error,setError] = useState('')
+  const [notice,setNotice] = useState('')
+  const selectedDevice=devices.find(device=>String(device.id)===deviceID)
+  const profile=selectedDevice?.osDetection.profile??''
+
+  const refresh = useCallback(async () => {
+    setLoading(true)
+    try {
+      const [configuration,result] = await Promise.all([dashboardApi.configurationDevices(),dashboardApi.configurationPlans()])
+      setDevices(configuration.devices)
+      setPlans(result.plans)
+      if (!configuration.devices.some(device=>String(device.id)===deviceID)) setDeviceID(configuration.devices.length?String(configuration.devices[0].id):'')
+      setError('')
+    } catch { setError('Configuration plans or device inventory could not be loaded.') }
+    finally { setLoading(false) }
+  },[deviceID])
+  useEffect(()=>{void refresh()},[refresh])
+
+  function makeRequest(): ConfigurationPlanRequest {
+    const request: ConfigurationPlanRequest = {device_id:Number(deviceID),profile,operation,vlan_id:Number(vlanID)}
+    if(operation==='create_vlan') request.vlan_name=vlanName.trim()
+    else {
+      request.interface=iface.trim(); request.port_mode=portMode
+      if(portMode==='trunk') request.allowed_vlans=allowed.split(',').map(value=>Number(value.trim()))
+    }
+    return request
+  }
+  async function createPlan(event:FormEvent) {
+    event.preventDefault();setBusy(true);setError('');setNotice('');setPreview([])
+    if(!selectedDevice||selectedDevice.osDetection.status!=='supported'||!profile) {
+      setError(selectedDevice?.osDetection.reason||'Select a device with a detected, supported OS version before preparing commands.')
+      setBusy(false)
+      return
+    }
+    try {
+      const result=await dashboardApi.createConfigurationPlan(makeRequest())
+      setPreview(result.commands);setNotice(`Draft ${result.id} saved for ${result.hostname}. No switch command was sent.`)
+      const updated=await dashboardApi.configurationPlans();setPlans(updated.plans)
+    } catch(err) {setError(err instanceof Error?err.message:'Unable to save the configuration draft.')}
+    finally {setBusy(false)}
+  }
+  const input='mt-1.5 w-full rounded-lg border border-white/10 bg-[#080f0e] px-3 py-2.5 text-sm text-slate-100 outline-none focus:border-emerald-400/50'
+  const label='block text-xs font-semibold text-slate-400'
+  const profileName=(value:string)=>value==='ats3900-aos@3.3.1.1'?'ATS-3900-24P6X · AOS 3.3.1.1':value.startsWith('ats-cli@')?`ATS CLI · ${value.slice('ats-cli@'.length)}`:value==='ats-cli'?'ATS CLI':value==='routing-v3.3.1'?'Routing Switch CLI · V3.3.1':'No qualified profile'
+  return <div className="space-y-4">
+    <div className="flex items-start gap-3 rounded-xl border border-amber-400/20 bg-amber-400/[.045] p-4">
+      <ShieldAlert size={18} className="mt-0.5 shrink-0 text-amber-300"/>
+      <div><p className="text-sm font-semibold text-amber-200">OS-matched drafts only</p><p className="mt-1 text-xs leading-5 text-slate-400">NMS reads the switch system description and uses a matching profile for the reported OS version. Unsupported or stale identity data blocks draft creation. This view still does not connect to switches or apply commands.</p></div>
+    </div>
+    <section className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_minmax(320px,.8fr)]">
+      <form onSubmit={createPlan} className="panel space-y-5 p-5">
+        <header><p className="label">Change builder</p><h2 className="mt-1 text-lg font-semibold text-white">Create a configuration draft</h2></header>
+        <div className="grid gap-4 sm:grid-cols-2">
+          <label className={label}>Target switch<select className={input} value={deviceID} onChange={e=>{setDeviceID(e.target.value);setPreview([]);setNotice('');setError('')}} required><option value="">Select a device</option>{devices.map(d=><option key={d.id} value={d.id}>{d.hostname} · {d.ipAddress}</option>)}</select></label>
+          <div className="rounded-lg border border-white/8 bg-black/15 p-3"><p className={label}>Detected OS and command profile</p>{selectedDevice?.osDetection.status==='supported'?<><p className="mt-2 text-sm font-medium text-slate-200">{selectedDevice.osDetection.family} {selectedDevice.osDetection.version} · {profileName(profile)}</p><p className="mt-1 text-[11px] leading-4 text-emerald-300">{selectedDevice.osDetection.confidence} confidence · {selectedDevice.osDetection.reason}</p><p className="mt-1 text-[10px] text-slate-500">Last identified {formatTime(selectedDevice.osDetection.observedAt)}</p></>:<><p className="mt-2 text-sm text-amber-200">{selectedDevice?.osDetection.family||'Not identified'}{selectedDevice?.osDetection.version?` ${selectedDevice.osDetection.version}`:''}</p><p className="mt-1 text-[11px] leading-4 text-slate-400">{selectedDevice?.osDetection.reason||'Select a switch to inspect its OS identification status.'}</p>{selectedDevice?.osDetection.observedAt&&<p className="mt-1 text-[10px] text-slate-500">Last identified {formatTime(selectedDevice.osDetection.observedAt)}</p>}</>}</div>
+          <label className={label}>Configuration task<select className={input} value={operation} onChange={e=>setOperation(e.target.value as typeof operation)}><option value="create_vlan">Create VLAN</option><option value="configure_port">Configure port VLAN membership</option></select></label>
+          <label className={label}>VLAN ID<input className={input} type="number" min="2" max="4094" value={vlanID} onChange={e=>setVlanID(e.target.value)} required/></label>
+          {operation==='create_vlan'&&<label className={label}>VLAN name<input className={input} value={vlanName} onChange={e=>setVlanName(e.target.value)} maxLength={32} placeholder="users"/></label>}
+          {operation==='configure_port'&&<>
+            <label className={label}>Interface name<input className={input} value={iface} onChange={e=>setIface(e.target.value)} maxLength={32} placeholder={profile.startsWith('ats-cli')?'g0/1':profile.startsWith('ats3900-')?'g0/0/1':'eth-0-1'} required/></label>
+            <label className={label}>Port mode<select className={input} value={portMode} onChange={e=>setPortMode(e.target.value as typeof portMode)}><option value="access">Access</option><option value="trunk">Trunk</option></select></label>
+            {portMode==='trunk'&&<label className={label}>Allowed VLAN IDs<input className={input} value={allowed} onChange={e=>setAllowed(e.target.value)} placeholder="10,20,30"/><span className="mt-1 block text-[10px] font-normal text-slate-600">Comma-separated values, 1–4094.</span></label>}
+          </>}
+        </div>
+        <button disabled={busy||loading||!devices.length||selectedDevice?.osDetection.status!=='supported'} className="inline-flex items-center gap-2 rounded-lg bg-[#d6ff8a] px-4 py-2.5 text-sm font-bold text-[#10150b] disabled:opacity-50">{busy?<RefreshCw size={15} className="animate-spin"/>:<Save size={15}/>} Save draft and preview</button>
+        {!devices.length&&!loading&&<p className="text-xs text-slate-500">Enroll a switch in Fleet Inventory before creating a plan.</p>}
+        {error&&<p role="alert" className="rounded-lg border border-rose-400/20 bg-rose-400/5 p-3 text-sm text-rose-300">{error}</p>}
+        {notice&&<p role="status" className="rounded-lg border border-emerald-400/20 bg-emerald-400/5 p-3 text-sm text-emerald-200">{notice}</p>}
+        {!!preview.length&&<div><p className="label">Generated command preview · {profileName(profile)}</p><pre className="mt-2 overflow-x-auto rounded-lg border border-white/8 bg-black/30 p-4 text-xs leading-6 text-emerald-200">{preview.join('\n')}</pre></div>}
+      </form>
+      <aside className="panel p-5"><p className="label">Included in this first slice</p><div className="mt-4 space-y-3 text-sm"><p className="text-slate-300">✓ VLAN creation</p><p className="text-slate-300">✓ Access port VLAN assignment</p><p className="text-slate-300">✓ Trunk mode and allowed VLANs</p><p className="text-slate-500">Device execution, configuration backup and rollback are not enabled.</p></div><div className="mt-5 border-t border-white/8 pt-4"><p className="label">Detection sources</p><p className="mt-2 text-xs leading-5 text-slate-500">NMS uses SNMP sysDescr and the inventory model. Routing Switch V3.3.1, ATS CLI, and ATS-3900-24P6X AOS 3.3.1.1 are recognized. Other Type 3 models and versions remain blocked until qualified.</p></div></aside>
+    </section>
+    <section className="panel overflow-hidden"><header className="flex items-center justify-between border-b border-white/7 px-5 py-4"><div><p className="label">Saved change plans</p><h2 className="mt-1 font-semibold text-white">Draft queue</h2></div><button onClick={()=>void refresh()} className="rounded-lg border border-white/10 px-3 py-2 text-xs text-slate-400 hover:text-white">Refresh</button></header>
+      {loading?<p className="p-6 text-sm text-slate-500">Loading plans…</p>:plans.length?<div className="divide-y divide-white/[.06]">{plans.map(plan=><article key={plan.id} className="grid gap-3 p-4 sm:grid-cols-[1fr_auto]"><div><div className="flex flex-wrap items-center gap-2"><strong className="text-sm text-slate-200">{plan.hostname}</strong><span className="rounded-full border border-amber-400/20 bg-amber-400/5 px-2 py-0.5 text-[10px] text-amber-200">DRAFT · NOT APPLIED</span></div><p className="mt-1 text-xs text-slate-500">{plan.operation==='create_vlan'?'Create VLAN':'Configure port'} · {profileName(plan.profile)} · {formatTime(plan.created_at)}</p><pre className="mt-3 overflow-x-auto rounded-lg bg-black/25 p-3 text-[11px] leading-5 text-slate-300">{plan.commands.join('\n')}</pre></div><div className="text-xs text-slate-600">Plan #{plan.id}<br/>by {plan.created_by}</div></article>)}</div>:<p className="p-8 text-center text-sm text-slate-500">No configuration drafts have been saved.</p>}
+    </section>
+  </div>
 }
 
 // ────────────────────────── DEVICE DETAIL PANEL ──────────────────────────
@@ -408,7 +500,7 @@ function DeviceEditor({ device, models, onClose, onSave }: {
   const label = 'block text-xs font-semibold text-slate-400'
   return <div className="fixed inset-0 z-[60] grid place-items-center overflow-y-auto bg-black/70 p-4 backdrop-blur-sm" onMouseDown={event=>{if(event.target===event.currentTarget)onClose()}}>
     <section role="dialog" aria-modal="true" aria-labelledby="device-form-title" className="my-auto w-full max-w-2xl overflow-hidden rounded-2xl border border-white/10 bg-[#0c1210] shadow-2xl shadow-black/60">
-      <header className="flex items-center justify-between border-b border-white/8 px-6 py-5"><div className="flex items-center gap-3"><img src="/ccl-logo-dark.png" alt="" className="size-10 rounded-full object-cover"/><div><p className="text-[10px] font-bold uppercase tracking-[.2em] text-[#d6ff8a]">Code Crafted Labs · NetPulse</p><h2 id="device-form-title" className="mt-1 text-lg font-semibold text-white">{device ? 'Edit device' : 'Add a device'}</h2></div></div><button type="button" onClick={onClose} aria-label="Close" className="grid size-9 place-items-center rounded-lg border border-white/10 text-slate-500 hover:text-white"><X size={17}/></button></header>
+      <header className="flex items-center justify-between border-b border-white/8 px-6 py-5"><div className="flex items-center gap-3"><img src="/ccl-logo-dark.png" alt="" className="size-10 rounded-full object-cover"/><div><p className="text-[10px] font-bold uppercase tracking-[.2em] text-[#d6ff8a]">Code Crafted Labs · NMS</p><h2 id="device-form-title" className="mt-1 text-lg font-semibold text-white">{device ? 'Edit device' : 'Add a device'}</h2></div></div><button type="button" onClick={onClose} aria-label="Close" className="grid size-9 place-items-center rounded-lg border border-white/10 text-slate-500 hover:text-white"><X size={17}/></button></header>
       <form onSubmit={submit} className="space-y-6 p-6">
         <div><p className="label">Device identity</p><div className="mt-3 grid gap-4 sm:grid-cols-2">
           <label className={label}>Hostname <span className="text-[#d6ff8a]">*</span><input className={field} value={draft.hostname} onChange={e=>update('hostname',e.target.value)} required maxLength={255} placeholder="edge-router-01" autoFocus /></label>
@@ -418,7 +510,7 @@ function DeviceEditor({ device, models, onClose, onSave }: {
         </div></div>
         <div className="border-t border-white/8 pt-5"><p className="label">Monitoring and access</p><div className="mt-3 grid gap-4 sm:grid-cols-2">
           <label className={label}>SNMP version<select className={field} value={draft.snmpVersion} onChange={e=>update('snmpVersion',e.target.value)}><option value="v2c">SNMPv2c · migration / lab</option>{device?.snmpVersion==='v3'&&<option value="v3">SNMPv3 · current</option>}</select>{!device&&<span className="mt-1 block text-[11px] text-slate-600">SNMPv3 onboarding is available when credential profiles are added.</span>}</label>
-          {draft.snmpVersion==='v2c'&&<label className={label}>SNMP community{device&&<span className="ml-1 font-normal text-slate-600">(leave blank to keep current)</span>}<input className={field} type="password" autoComplete="new-password" value={draft.snmpCommunity} onChange={e=>update('snmpCommunity',e.target.value)} placeholder={device?'Stored value is hidden':'Defaults to public'} /></label>}
+          {(draft.snmpVersion==='v2c'||draft.snmpVersion==='v1')&&<label className={label}>SNMP community{device&&<span className="ml-1 font-normal text-slate-600">(leave blank to keep current)</span>}<input className={field} type="password" autoComplete="new-password" value={draft.snmpCommunity} onChange={e=>update('snmpCommunity',e.target.value)} placeholder={device?'Stored value is hidden':'Enter the device read-only community'} required={!device} /></label>}
         </div>
         <label className="mt-4 flex cursor-pointer items-start gap-3 rounded-xl border border-white/8 bg-white/[.02] p-4"><input type="checkbox" checked={draft.isMonitored} onChange={e=>update('isMonitored',e.target.checked)} className="mt-0.5 accent-[#d6ff8a]"/><span><strong className="block text-sm font-medium text-slate-200">Monitor this device</strong><span className="mt-1 block text-xs text-slate-500">Include this device in reachability monitoring and fleet health.</span></span></label>
         </div>
@@ -607,6 +699,9 @@ export default function App() {
   const [view, setView] = useState<View>('overview')
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
+  const [monitoringMode, setMonitoringMode] = useState<MonitoringMode|null>(null)
+  const [modeState, setModeState] = useState<MonitoringModeState|null>(null)
+  const [changingMode, setChangingMode] = useState(false)
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -616,7 +711,26 @@ export default function App() {
   }, [])
 
   useEffect(()=>{ dashboardApi.session().then(()=>setAuthenticated(true)).catch(()=>setAuthenticated(false)) },[])
+  useEffect(()=>{ if(!authenticated)return; dashboardApi.monitoringMode().then(result=>{setMonitoringMode(result.mode);setModeState(result)}).catch(()=>setError('Unable to read the active device mode.')) },[authenticated])
   useEffect(()=>{ if(!authenticated)return; const first=window.setTimeout(load,0); const id=window.setInterval(load,15000); return()=>{ window.clearTimeout(first); window.clearInterval(id) } },[authenticated,load])
+
+  async function changeMode(nextMode:MonitoringMode) {
+    if (!monitoringMode || nextMode===monitoringMode || changingMode) return
+    const targetCount=nextMode==='test'?modeState?.testDeviceCount??0:modeState?.liveDeviceCount??0
+    const scope = nextMode==='test'
+      ? `This will poll ${targetCount} monitored mock device${targetCount===1?'':'s'}.`
+      : `This will stop mock polling and begin polling ${targetCount} monitored real device${targetCount===1?'':'s'}.`
+    if (!window.confirm(`Switch NMS to ${nextMode.toUpperCase()} mode? ${scope} Changes reach collectors within about 15 seconds.`)) return
+    setChangingMode(true); setError('')
+    try {
+      const result=await dashboardApi.setMonitoringMode(nextMode)
+      setMonitoringMode(result.mode)
+      setModeState(result)
+      await load()
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Unable to change device mode.')
+    } finally { setChangingMode(false) }
+  }
 
   if(authenticated===null) return <div className="grid min-h-screen place-items-center bg-[#07100f] text-emerald-300"><RefreshCw className="animate-spin"/></div>
   if(!authenticated) return <Login onAuthenticated={()=>setAuthenticated(true)}/>
@@ -625,6 +739,7 @@ export default function App() {
     {id:'overview',label:'Operations',icon:<LayoutDashboard size={18}/>},
     {id:'topology',label:'Network topology',icon:<Network size={18}/>,count:data.topology.length},
     {id:'inventory',label:'Fleet inventory',icon:<Server size={18}/>,count:data.overview.monitored},
+    {id:'configuration',label:'Switch configuration',icon:<Settings2 size={18}/>},
     {id:'alerts',label:'Active alerts',icon:<AlertTriangle size={18}/>,count:data.overview.openAlerts},
     {id:'audit',label:'Audit events',icon:<ClipboardList size={18}/>},
   ]
@@ -632,12 +747,12 @@ export default function App() {
   return (
     <div className="min-h-screen bg-[#07100f] text-slate-300">
       {/* Sidebar */}
-      <aside className="fixed inset-y-0 left-0 z-20 hidden w-64 border-r border-white/7 bg-[#091312] lg:block">
+      <aside className="fixed inset-y-0 left-0 z-20 hidden w-64 flex-col border-r border-white/7 bg-[#091312] lg:flex">
         <div className="flex h-20 items-center gap-3 border-b border-white/7 px-5">
           <img src="/ccl-logo-dark.png" alt="Code Crafted Labs" className="size-10 rounded-full object-cover" />
-          <div><p className="text-xs font-bold tracking-wide text-white">CODE CRAFTED LABS</p><p className="text-[10px] uppercase tracking-[.18em] text-[#d6ff8a]">NetPulse · Command center</p></div>
+          <div><p className="text-xs font-bold tracking-wide text-white">CODE CRAFTED LABS</p><p className="text-[10px] uppercase tracking-[.18em] text-[#d6ff8a]">NMS · Command center</p></div>
         </div>
-        <nav className="p-4">
+        <nav className="min-h-0 flex-1 overflow-y-auto p-4">
           <p className="px-3 py-3 text-[10px] font-bold uppercase tracking-[.2em] text-slate-600">Monitor</p>
           {nav.map(item=>(
             <button key={item.id} onClick={()=>setView(item.id)}
@@ -652,8 +767,8 @@ export default function App() {
             <p className="mt-1.5 text-[10px] leading-relaxed text-slate-500">6 strategies: device-down, link-state, admin/oper mismatch, high CPU, high memory, SNMP failure</p>
           </div>
         </nav>
-        <div className="absolute bottom-[136px] w-full px-6 text-[10px] tracking-wide text-slate-600">A network operations platform by <span className="text-slate-400">Code Crafted Labs</span></div>
-        <div className="absolute bottom-0 w-full border-t border-white/7 p-4">
+        <div className="mt-auto border-t border-white/7 p-4">
+          <p className="mb-3 px-2 text-[10px] leading-4 tracking-wide text-slate-600">A network operations platform by <span className="text-slate-400">Code Crafted Labs</span></p>
           <div className="mb-3 flex items-center gap-3 rounded-lg bg-white/[.025] p-3">
             <div className="grid size-8 place-items-center rounded-full bg-emerald-400/10 text-emerald-300"><ShieldCheck size={16}/></div>
             <div><p className="text-xs font-medium text-slate-300">Administrator</p><p className="text-[10px] text-emerald-400">Secure session</p></div>
@@ -667,6 +782,15 @@ export default function App() {
         <header className="sticky top-0 z-10 flex h-20 items-center gap-4 border-b border-white/7 bg-[#07100f]/90 px-5 backdrop-blur-xl sm:px-8">
           <div className="lg:hidden flex items-center gap-2"><img src="/ccl-logo-dark.png" alt="Code Crafted Labs" className="size-8 rounded-full object-cover"/><Radio className="text-[#d6ff8a]"/></div>
           <div className="flex-1"/>
+          <label className="flex items-center gap-2 text-xs">
+            <span className="hidden text-slate-500 sm:inline">Device mode</span>
+            <select aria-label="Device mode" value={monitoringMode ?? ''} disabled={!monitoringMode||changingMode}
+              onChange={event=>changeMode(event.target.value as MonitoringMode)}
+              className={`rounded-lg border px-3 py-2 text-xs font-semibold outline-none ${monitoringMode==='production'?'border-rose-400/40 bg-rose-400/10 text-rose-200':'border-emerald-400/30 bg-emerald-400/10 text-emerald-200'} disabled:opacity-60`}>
+              <option value="test">TEST · mock devices</option>
+              <option value="production">PRODUCTION · real devices</option>
+            </select>
+          </label>
           <button onClick={load} aria-label="Refresh dashboard" className="grid size-9 place-items-center rounded-lg border border-white/8 text-slate-500 hover:text-emerald-300">
             <RefreshCw className={loading?'animate-spin':''} size={16}/>
           </button>
@@ -678,15 +802,17 @@ export default function App() {
         <main className="mx-auto max-w-[1500px] p-5 sm:p-8">
           <div className="mb-7 flex flex-wrap items-end justify-between gap-3">
             <div>
-              <p className="mb-2 flex items-center gap-2 text-xs font-semibold uppercase tracking-[.18em] text-emerald-400"><Activity size={13}/>Live telemetry</p>
+              <p className="mb-2 flex items-center gap-2 text-xs font-semibold uppercase tracking-[.18em] text-emerald-400"><Activity size={13}/>{view==='configuration'?'Change planning':'Live telemetry'}</p>
               <h1 className="text-2xl font-semibold tracking-tight text-white">{nav.find(item=>item.id===view)?.label}</h1>
+              <p className="mt-1 text-xs text-slate-500">{view==='configuration'?'Draft planning only · no commands are sent to devices':monitoringMode==='test'?`Test mode · ${modeState?.testDeviceCount??'…'} monitored mock devices`:monitoringMode==='production'?`Production mode · ${modeState?.liveDeviceCount??'…'} monitored real devices`:'Reading active device mode…'}</p>
             </div>
             <p className="text-xs text-slate-600">Last synchronized {formatTime(data.generatedAt)}</p>
           </div>
           {error&&<div role="alert" className="mb-4 flex items-center gap-2 rounded-lg border border-amber-400/20 bg-amber-400/8 p-3 text-sm text-amber-200"><AlertTriangle size={16}/>{error}</div>}
           {view==='overview'&&<Overview data={data}/>}
           {view==='topology'&&<TopologyMap data={data}/>}
-          {view==='inventory'&&<InventoryView/>}
+          {view==='inventory'&&<InventoryView key={monitoringMode ?? 'loading'}/>}
+          {view==='configuration'&&<ConfigurationView/>}
           {view==='alerts'&&<Alerts events={data.events}/>}
           {view==='audit'&&<AuditView/>}
         </main>

@@ -19,6 +19,25 @@ export type AuditEvent = {
   outcome: 'success'|'failure'; method: string; path: string; status_code: number
 }
 export type AuditResponse = { events: AuditEvent[]; page: number; page_size: number }
+export type MonitoringMode = 'test'|'production'
+export type MonitoringModeState = { mode:MonitoringMode; testDeviceCount:number; liveDeviceCount:number }
+export type ConfigurationPlan = {
+  id:number; device_id:number; hostname:string; profile:string; operation:string
+  parameters:Record<string, unknown>; commands:string[]; status:'draft'; created_by:string; created_at:string
+}
+export type ConfigurationPlanRequest = {
+  device_id:number; profile:string; operation:'create_vlan'|'configure_port'; vlan_id:number
+  vlan_name?:string; interface?:string; port_mode?:'access'|'trunk'; allowed_vlans?:number[]
+}
+export type ConfigurationOSDetection = {
+  status:'supported'|'unidentified'|'version_unreported'|'unsupported_version'|'identity_unconfirmed'|'unsupported'
+  family:string; version:string; profile:string; profileName:string
+  confidence:'high'|'medium'|'low'|'none'; reason:string; evidence:string[]; observedAt:string
+}
+export type ConfigurationDevice = {
+  id:number; hostname:string; ipAddress:string; deviceType:string
+  osDetection:ConfigurationOSDetection
+}
 export type DevicePayload = {
   hostname: string; ip_address: string; device_type: string; location: string
   snmp_community: string; snmp_version: string; is_monitored: boolean
@@ -65,6 +84,8 @@ export const dashboardApi = {
   async session() { const session=await request<{csrfToken:string}>('/api/session'); csrfToken=session.csrfToken },
   async logout() { await request<void>('/api/session',{method:'DELETE'}); csrfToken='' },
   dashboard() { return request<DashboardData>('/api/v1/dashboard') },
+  monitoringMode() { return request<MonitoringModeState>('/api/v1/monitoring-mode') },
+  setMonitoringMode(mode:MonitoringMode) { return request<MonitoringModeState>('/api/v1/monitoring-mode',{method:'PUT',body:JSON.stringify({mode})}) },
   inventory(params: Record<string, string|number> = {}) {
     const qs = new URLSearchParams(Object.entries(params).map(([k,v])=>[k,String(v)])).toString()
     return request<InventoryResponse>(`/api/v1/devices${qs ? '?'+qs : ''}`)
@@ -76,4 +97,7 @@ export const dashboardApi = {
   deviceDetail(id: number) { return request<DeviceDetail>(`/api/v1/devices/${id}`) },
   resolveAlarm(id: number) { return request<void>(`/api/v1/alarms/${id}/resolve`, { method: 'POST' }) },
   audit(page = 1, pageSize = 50) { return request<AuditResponse>(`/api/v1/audit?page=${page}&page_size=${pageSize}`) },
+  configurationPlans() { return request<{plans:ConfigurationPlan[]}>('/api/v1/configuration/plans') },
+  configurationDevices() { return request<{devices:ConfigurationDevice[]}>('/api/v1/configuration/devices') },
+  createConfigurationPlan(payload:ConfigurationPlanRequest) { return request<{id:number;hostname:string;profile:string;operation:string;commands:string[];status:'draft'}>('/api/v1/configuration/plans',{method:'POST',body:JSON.stringify(payload)}) },
 }

@@ -3,7 +3,7 @@
   "configVersion": 1,
   "workspaces": {
     "": {
-      "name": "ui",
+      "name": "nms-command-center",
       "dependencies": {
         "@tailwindcss/vite": "^4.3.3",
         "lucide-react": "^1.49.0",
