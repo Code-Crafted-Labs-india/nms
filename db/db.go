@@ -256,6 +256,9 @@ func RunMigrations(ctx context.Context, database *DB, logger *slog.Logger) error
 	if err := seedDeviceModels(ctx, database, logger); err != nil {
 		return fmt.Errorf("device_models seeding failed: %w", err)
 	}
+	if err := seedMockTopology(ctx, database, logger); err != nil {
+		return fmt.Errorf("mock topology seeding failed: %w", err)
+	}
 	if _, err := database.Pool.Exec(ctx, `
 		INSERT INTO nms_runtime_settings (setting_key, setting_value)
 		VALUES ('monitoring_mode', 'test')
@@ -275,6 +278,41 @@ func RunMigrations(ctx context.Context, database *DB, logger *slog.Logger) error
 	}
 
 	logger.Info("[Schema Sync] Selected schema checks completed.")
+	return nil
+}
+
+// seedMockTopology makes the demo topology available on every application
+// startup, including builds that reuse an existing database volume. Every edge
+// is restricted to inventory rows whose hostnames use the mock- prefix.
+func seedMockTopology(ctx context.Context, database *DB, logger *slog.Logger) error {
+	tag, err := database.Pool.Exec(ctx, `
+		INSERT INTO network_topology (
+			source_device, source_port, target_device, target_port, updated_at
+		)
+		SELECT edge.source_device, edge.source_port, edge.target_device, edge.target_port, NOW()
+		FROM (VALUES
+			('mock-core-01',   'TenGigabitEthernet0/49', 'mock-router-01', 'TenGigabitEthernet0/49'),
+			('mock-core-01',   'TenGigabitEthernet0/50', 'mock-router-02', 'TenGigabitEthernet0/49'),
+			('mock-router-01', 'GigabitEthernet0/1',     'mock-switch-01', 'GigabitEthernet0/1'),
+			('mock-router-02', 'GigabitEthernet0/1',     'mock-switch-02', 'GigabitEthernet0/1'),
+			('mock-switch-01', 'GigabitEthernet0/2',    'mock-switch-02', 'GigabitEthernet0/2')
+		) AS edge(source_device, source_port, target_device, target_port)
+		JOIN devices source ON source.hostname = edge.source_device
+		JOIN devices target ON target.hostname = edge.target_device
+		WHERE LOWER(source.hostname) LIKE 'mock-%'
+		  AND LOWER(target.hostname) LIKE 'mock-%'
+		  AND NOT EXISTS (
+			  SELECT 1 FROM network_topology existing
+			  WHERE existing.source_device = edge.source_device
+			    AND existing.source_port IS NOT DISTINCT FROM edge.source_port
+			    AND existing.target_device = edge.target_device
+			    AND existing.target_port IS NOT DISTINCT FROM edge.target_port
+		  )
+	`)
+	if err != nil {
+		return err
+	}
+	logger.Info("[Schema Sync] Mock topology seed checked", "edges_added", tag.RowsAffected())
 	return nil
 }
 

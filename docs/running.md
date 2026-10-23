@@ -128,9 +128,12 @@ monitored inventory targets. The middleware generates these targets and
 Telegraf watches the shared generated-config volume; do not edit target lists
 in `telegraf.conf`. Devices must have LLDP enabled and
 the configured SNMP credentials must be allowed to read LLDP-MIB. The bundled
-mock `snmpd` agents do not implement LLDP, so an empty topology in the mock lab
-is expected; the application does not invent neighbor links. Newly enrolled
-devices are reconciled into Telegraf's target list within about
+mock `snmpd` agents do not implement LLDP, so startup seeds a fixed illustrative
+topology among the `mock-*` devices. These mock-only links are refreshed on
+every middleware startup (including after a new build with a reused database
+volume) and are retained by the topology expiry worker. Production inventory
+does not receive synthetic links; production graph results remain sourced from
+LLDP. Newly enrolled devices are reconciled into Telegraf's target list within about
 15 seconds. The generator supports only SNMPv1/v2c, and it skips unsupported
 versions or blank communities. Communities are presently stored in plaintext
 in the database and generated file. SNMPv3, protected credential profiles,
@@ -146,8 +149,9 @@ to `public`. The credential-profile workflow and connectivity preflight describe
 
 ## Optional demonstration data
 
-The mock devices generate live ICMP and SNMP telemetry. To additionally load
-the repeatable demonstration dataset:
+The mock devices generate live ICMP and SNMP telemetry, and the illustrative
+mock topology is seeded automatically when the middleware starts. To additionally
+load the repeatable historical telemetry and alert demonstration dataset:
 
 ```bash
 docker compose exec -T timescaledb \

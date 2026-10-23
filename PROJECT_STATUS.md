@@ -148,7 +148,7 @@ Based on [`docs/product-future-scope.md`](docs/product-future-scope.md):
 
 | Scope Item | Priority | Status | Notes |
 |---|---|---|---|
-| Topology enhancements (force-directed, minimap, filters) | P1 | 🔴 Not started | Basic SVG topology exists; no layout modes or filters. |
+| Topology enhancements (large estate navigation, VLAN views) | P1 | 🟡 Partial | Role lanes, device/address/location search, role/status filters, and a scrollable canvas support larger inventories; VLAN membership telemetry, site/VLAN filters, force layout, and minimap remain unimplemented. |
 | Discovery rules and dynamic groups | P2 | 🔴 Not started | |
 | Reports and SLA views | P2 | 🔴 Not started | |
 | Port security violation alert (#14) | P2 | 🔴 Not started | |

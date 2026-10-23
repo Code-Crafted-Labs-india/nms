@@ -27,6 +27,9 @@ For a real-device pilot and production-readiness checklist, see the
 Compose and Telegraf configurations are for the simulated demo environment and
 must be adapted and security-reviewed before polling real equipment.
 
+Device models and software versions supplied for pilot planning are recorded in
+[`docs/device-inventory.md`](docs/device-inventory.md).
+
 The PRL client-specification gap analysis and staged delivery plan are in
 [`docs/client-requirements-gap-plan.md`](docs/client-requirements-gap-plan.md).
 The client-facing response draft, indicative timeline, assumptions, and

@@ -119,7 +119,11 @@ func syncTopology(database *db.DB) error {
 	// network_topology is the current graph, not an event history. Expire links
 	// that have not been observed in the raw LLDP table during its five-minute
 	// freshness window.
-	if _, err := database.Pool.Exec(ctx, `DELETE FROM network_topology WHERE updated_at < NOW() - INTERVAL '5 minutes'`); err != nil {
+	if _, err := database.Pool.Exec(ctx, `
+		DELETE FROM network_topology
+		WHERE updated_at < NOW() - INTERVAL '5 minutes'
+		  AND NOT (LOWER(source_device) LIKE 'mock-%' AND LOWER(target_device) LIKE 'mock-%')
+	`); err != nil {
 		return err
 	}
 

@@ -70,81 +70,78 @@ function DeviceTable({ devices }: { devices: DashboardData['devices'] }) {
 
 // ────────────────────────── TOPOLOGY ──────────────────────────
 function TopologyMap({ data }: { data: DashboardData }) {
-  const [hoveredNode, setHoveredNode] = useState<string|null>(null)
-  const nodes = useMemo(() => {
+  const [search, setSearch] = useState('')
+  const [typeFilter, setTypeFilter] = useState('all')
+  const [statusFilter, setStatusFilter] = useState('all')
+  const [selectedNode, setSelectedNode] = useState<string|null>(null)
+  const devicesByName = useMemo(() => new Map(data.devices.map(device => [device.hostname, device])), [data.devices])
+  const allNodes = useMemo(() => {
     const names = new Set(data.devices.map(device => device.hostname))
     data.topology.forEach(edge => { names.add(edge.source); names.add(edge.target) })
-    const ordered = [...names].sort((left, right) => {
-      const leftCore = data.devices.find(device => device.hostname === left)?.type.toLowerCase().includes('core') ? -1 : 0
-      const rightCore = data.devices.find(device => device.hostname === right)?.type.toLowerCase().includes('core') ? -1 : 0
-      return leftCore - rightCore || left.localeCompare(right)
-    })
-    const hasCore = Boolean(data.devices.find(device => device.hostname === ordered[0])?.type.toLowerCase().includes('core'))
-    return ordered.map((name, index) => {
-      const device = data.devices.find(item => item.hostname === name)
-      if (index === 0 && hasCore) return { name, device, x: 450, y: 270 }
-      const orbit = hasCore ? ordered.slice(1) : ordered
-      const orbitIndex = hasCore ? index - 1 : index
-      const angle = (Math.PI * 2 * orbitIndex / Math.max(orbit.length, 1)) - Math.PI / 2
-      return { name, device, x: 450 + Math.cos(angle) * 310, y: 270 + Math.sin(angle) * 190 }
-    })
-  }, [data.devices, data.topology])
-  const positions = new Map(nodes.map(node => [node.name, node]))
-  const offline = data.devices.filter(device => device.status === 'offline')
+    return [...names].map(name => {
+      const device = devicesByName.get(name)
+      const rawType = device?.type || 'Unmanaged'
+      const type = /core/i.test(rawType) ? 'Core' : /router/i.test(rawType) ? 'Router' : /firewall|security/i.test(rawType) ? 'Security' : /switch/i.test(rawType) ? 'Switch' : /wireless|access.?point|ap\b/i.test(rawType) ? 'Wireless' : 'Other'
+      return { name, device, type }
+    }).sort((a, b) => a.type.localeCompare(b.type) || a.name.localeCompare(b.name))
+  }, [data.devices, data.topology, devicesByName])
+  const types = [...new Set(allNodes.map(node => node.type))]
+  const nodes = allNodes.filter(node => {
+    const text = `${node.name} ${node.device?.ipAddress || ''} ${node.device?.location || ''}`.toLowerCase()
+    return (!search || text.includes(search.toLowerCase())) && (typeFilter === 'all' || node.type === typeFilter) && (statusFilter === 'all' || (node.device?.status || 'unknown') === statusFilter)
+  })
+  const canvasWidth = Math.max(900, types.length * 220 + 60)
+  const grouped = new Map<string, typeof nodes>()
+  nodes.forEach(node => grouped.set(node.type, [...(grouped.get(node.type) || []), node]))
+  let maxRows = 1
+  const positions = new Map<string, (typeof nodes)[number] & { x:number; y:number }>()
+  types.forEach((type, column) => {
+    const group = grouped.get(type) || []
+    maxRows = Math.max(maxRows, group.length)
+    group.forEach((node, row) => positions.set(node.name, { ...node, x: 110 + column * 220, y: 92 + row * 98 }))
+  })
+  const canvasHeight = Math.max(500, maxRows * 98 + 100)
+  const visibleEdges = data.topology.filter(edge => positions.has(edge.source) && positions.has(edge.target))
+  const offline = nodes.flatMap(node => node.device?.status === 'offline' ? [node.device] : [])
+  const selected = selectedNode ? positions.get(selectedNode) : undefined
   const statusColor = (status?: string) => status === 'online' ? '#34d399' : status === 'offline' ? '#fb7185' : '#64748b'
+  const selectClass = 'min-w-0 rounded-lg border border-white/10 bg-[#0c1716] px-3 py-2 text-xs text-slate-200 outline-none focus:border-emerald-400/50'
 
-  return <section className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_280px]">
-    <article className="panel overflow-hidden">
-      <header className="flex flex-wrap items-center justify-between gap-3 border-b border-white/7 px-5 py-4"><div><p className="label">LLDP topology</p><h2 className="mt-1 font-semibold text-white">Device interconnection map</h2></div><div className="flex gap-4 text-xs"><span className="flex items-center gap-2 text-slate-400"><i className="size-2 rounded-full bg-emerald-400"/>Online</span><span className="flex items-center gap-2 text-slate-400"><i className="size-2 rounded-full bg-rose-400"/>Down</span><span className="flex items-center gap-2 text-slate-400"><i className="size-2 rounded-full bg-slate-500"/>Unknown</span></div></header>
-      <div className="overflow-x-auto bg-[radial-gradient(circle_at_center,rgba(52,211,153,.055),transparent_48%)] p-3">
-        <svg viewBox="0 0 900 540" className="min-h-[480px] min-w-[760px] w-full" role="img" aria-label="Network topology showing device links and operational status">
-          <defs><filter id="nodeGlow"><feGaussianBlur stdDeviation="5" result="blur"/><feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge></filter></defs>
-          {data.topology.map(edge => {
-            const source = positions.get(edge.source), target = positions.get(edge.target)
-            if (!source || !target) return null
+  return <section className="grid min-w-0 gap-4 xl:grid-cols-[minmax(0,1fr)_280px]">
+    <article className="panel min-w-0 overflow-hidden">
+      <header className="flex flex-wrap items-center justify-between gap-3 border-b border-white/7 px-5 py-4"><div><p className="label">Network topology</p><h2 className="mt-1 font-semibold text-white">Device interconnection map</h2><p className="mt-1 text-xs text-slate-500">Role lanes, search and filters keep larger inventories navigable.</p></div><div className="flex gap-4 text-xs"><span className="flex items-center gap-2 text-slate-400"><i className="size-2 rounded-full bg-emerald-400"/>Online</span><span className="flex items-center gap-2 text-slate-400"><i className="size-2 rounded-full bg-rose-400"/>Down</span><span className="flex items-center gap-2 text-slate-400"><i className="size-2 rounded-full bg-slate-500"/>Unknown</span></div></header>
+      <div className="grid gap-2 border-b border-white/7 p-4 sm:grid-cols-[minmax(180px,1fr)_150px_150px]"><label className="relative"><Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-500"/><input aria-label="Search topology" className={`${selectClass} w-full pl-9`} placeholder="Find device, IP or location" value={search} onChange={event=>setSearch(event.target.value)}/></label><select aria-label="Filter topology by role" className={selectClass} value={typeFilter} onChange={event=>setTypeFilter(event.target.value)}><option value="all">All roles</option>{types.map(type=><option key={type} value={type}>{type}</option>)}</select><select aria-label="Filter topology by status" className={selectClass} value={statusFilter} onChange={event=>setStatusFilter(event.target.value)}><option value="all">All statuses</option><option value="online">Online</option><option value="offline">Down</option><option value="unknown">Unknown</option></select></div>
+      <div className="flex flex-wrap items-center justify-between gap-2 border-b border-white/7 px-4 py-2 text-[11px] text-slate-500"><span>Showing {nodes.length} of {allNodes.length} devices · {visibleEdges.length} visible links</span><span>Scroll the map to inspect all devices</span></div>
+      <div className="max-h-[72vh] min-h-[480px] overflow-auto bg-[radial-gradient(circle_at_center,rgba(52,211,153,.045),transparent_48%)] p-3">
+        {nodes.length ? <svg width={canvasWidth} height={canvasHeight} viewBox={`0 0 ${canvasWidth} ${canvasHeight}`} role="img" aria-label={`Network topology showing ${nodes.length} devices and ${visibleEdges.length} links`}>
+          <defs><pattern id="topologyGrid" width="32" height="32" patternUnits="userSpaceOnUse"><circle cx="1" cy="1" r="1" fill="rgba(148,163,184,.10)"/></pattern></defs>
+          <rect width={canvasWidth} height={canvasHeight} fill="url(#topologyGrid)"/>
+          {types.map((type, column)=><g key={type}><text x={110+column*220} y="28" textAnchor="middle" fill="#94a3b8" fontSize="12" fontWeight="700" letterSpacing="1">{type.toUpperCase()}</text><line x1={110+column*220} y1="42" x2={110+column*220} y2={canvasHeight-24} stroke="rgba(148,163,184,.08)" strokeDasharray="3 7"/></g>)}
+          {visibleEdges.map(edge => {
+            const source = positions.get(edge.source)!, target = positions.get(edge.target)!
             const down = source.device?.status === 'offline' || target.device?.status === 'offline'
-            return <g key={edge.id}><line x1={source.x} y1={source.y} x2={target.x} y2={target.y} stroke={down ? '#9f4251' : '#28584c'} strokeWidth={down ? 2.5 : 2} strokeDasharray={down ? '7 5' : undefined}/><circle cx={(source.x+target.x)/2} cy={(source.y+target.y)/2} r="3" fill={down ? '#fb7185' : '#34d399'}><title>{edge.sourcePort || 'port'} ↔ {edge.targetPort || 'port'}</title></circle></g>
+            const highlighted = selectedNode === edge.source || selectedNode === edge.target
+            const midX = (source.x + target.x) / 2
+            return <g key={edge.id} opacity={selectedNode && !highlighted ? .16 : .8}><path d={`M ${source.x} ${source.y} C ${midX} ${source.y}, ${midX} ${target.y}, ${target.x} ${target.y}`} fill="none" stroke={down ? '#fb7185' : highlighted ? '#d6ff8a' : '#34d399'} strokeWidth={highlighted ? 2.5 : 1.5} strokeDasharray={down ? '6 5' : undefined}/><title>{edge.source} · {edge.sourcePort || 'port'} ↔ {edge.target} · {edge.targetPort || 'port'}</title></g>
           })}
           {nodes.map(node => {
-            const color = statusColor(node.device?.status)
-            const selected = hoveredNode === node.name
-            return <g key={node.name} transform={`translate(${node.x} ${node.y})`} tabIndex={0} role="img"
-              aria-label={`${node.name}, ${node.device?.status || 'unknown'}, ${node.device?.ipAddress || 'unmanaged'}`}
-              onMouseEnter={() => setHoveredNode(node.name)} onMouseLeave={() => setHoveredNode(null)}
-              onFocus={() => setHoveredNode(node.name)} onBlur={() => setHoveredNode(null)}
-              className="cursor-default outline-none">
-              <circle r="38" fill={color} opacity=".08" filter="url(#nodeGlow)"/>
-              <rect x="-72" y="-31" width="144" height="62" rx="12" fill="#0d1917" stroke={selected ? '#d6ff8a' : color} strokeWidth={selected ? 2.5 : 2}/>
-              <circle cx="-50" cy="-8" r="7" fill={color}/>
-              <text x="-36" y="-3" fill="#e2e8f0" fontSize="13" fontWeight="600">{node.name.length > 17 ? `${node.name.slice(0,16)}…` : node.name}</text>
-              <text x="-50" y="17" fill="#64748b" fontSize="10">{node.device?.type || 'Unmanaged device'}</text>
-              <title>{node.name} — {node.device?.status || 'unknown'}{node.device?.ipAddress ? ` — ${node.device.ipAddress}` : ''}</title>
+            const point = positions.get(node.name)!, color = statusColor(node.device?.status), isSelected = selectedNode === node.name
+            const degree = data.topology.filter(edge => edge.source === node.name || edge.target === node.name).length
+            return <g key={node.name} transform={`translate(${point.x} ${point.y})`} tabIndex={0} role="button" aria-label={`${node.name}, ${node.device?.status || 'unknown'}, ${degree} links`} onClick={()=>setSelectedNode(isSelected ? null : node.name)} onKeyDown={event=>{if(event.key==='Enter'||event.key===' '){event.preventDefault();setSelectedNode(isSelected ? null : node.name)}}} className="cursor-pointer outline-none">
+              <rect x="-86" y="-29" width="172" height="58" rx="10" fill="#0d1917" stroke={isSelected ? '#d6ff8a' : color} strokeWidth={isSelected ? 2.5 : 1.5}/><circle cx="-69" cy="0" r="6" fill={color}/>
+              <text x="-57" y="-3" fill="#e2e8f0" fontSize="12" fontWeight="600">{node.name.length > 20 ? `${node.name.slice(0,19)}…` : node.name}</text><text x="-57" y="15" fill="#64748b" fontSize="10">{node.device?.ipAddress || 'Unmanaged'} · {degree} links</text>
+              <title>{node.name} · {node.device?.type || 'Unmanaged'} · {node.device?.location || 'No location'} · {node.device?.status || 'unknown'}</title>
             </g>
           })}
-          {hoveredNode && (() => {
-            const node = nodes.find(item => item.name === hoveredNode)
-            if (!node) return null
-            const device = node.device
-            const x = Math.max(16, Math.min(644, node.x - 120))
-            const y = node.y > 180 ? node.y - 145 : node.y + 45
-            const color = statusColor(device?.status)
-            const truncate = (value:string, length:number) => value.length > length ? `${value.slice(0,length-1)}…` : value
-            return <g pointerEvents="none" aria-hidden="true">
-              <rect x={x} y={y} width="240" height="128" rx="12" fill="#101a18" stroke="#d6ff8a" strokeOpacity=".72" strokeWidth="1.5" filter="url(#nodeGlow)"/>
-              <text x={x+14} y={y+22} fill="#f1f5f9" fontSize="13" fontWeight="700">{truncate(node.name,28)}</text>
-              <circle cx={x+18} cy={y+42} r="4" fill={color}/>
-              <text x={x+29} y={y+46} fill={color} fontSize="10" fontWeight="700">{(device?.status || 'unknown').toUpperCase()}</text>
-              <text x={x+14} y={y+66} fill="#94a3b8" fontSize="10">IP · {device?.ipAddress || 'Not in managed inventory'}</text>
-              <text x={x+14} y={y+85} fill="#94a3b8" fontSize="10">Type · {truncate(device?.type || 'Unmanaged device',30)}</text>
-              <text x={x+14} y={y+104} fill="#94a3b8" fontSize="10">Location · {truncate(device?.location || '—',28)}</text>
-              <text x={x+14} y={y+120} fill="#64748b" fontSize="9">{device?.rttMs != null ? `RTT ${device.rttMs.toFixed(1)} ms` : 'RTT —'}  ·  {device?.lastUpdate ? formatTime(device.lastUpdate) : 'No recent telemetry'}</text>
-            </g>
-          })()}
-        </svg>
-        {!data.topology.length && <div className="mx-auto max-w-xl pb-5 text-center"><p className="text-sm font-medium text-slate-300">No live LLDP neighbors received</p><p className="mt-1 text-xs leading-5 text-slate-500">Connections appear after monitored devices report neighbors through LLDP-MIB over SNMP. Enable LLDP and allow LLDP-MIB reads for the configured Telegraf SNMP targets.</p></div>}
+        </svg> : <div className="grid min-h-[420px] place-items-center p-8 text-center"><div><Network className="mx-auto text-slate-600" size={28}/><p className="mt-3 text-sm font-medium text-slate-300">No devices match these filters</p><p className="mt-1 text-xs text-slate-500">Clear the search or choose another role or status.</p></div></div>}
+        {!data.topology.length && nodes.length > 0 && <div className="mx-auto mt-3 max-w-xl rounded-lg border border-amber-400/15 bg-amber-400/[.04] p-3 text-xs leading-5 text-slate-400">No LLDP links have been received. Nodes are shown from managed inventory; enable LLDP and allow LLDP-MIB reads to populate connections.</div>}
       </div>
     </article>
-    <aside className="space-y-4"><article className="panel p-5"><p className="label">Topology summary</p><div className="mt-4 space-y-3"><div className="flex justify-between text-sm text-slate-400"><span>Visible nodes</span><strong className="text-white">{nodes.length}</strong></div><div className="h-px bg-white/7"/><div className="flex justify-between text-sm text-slate-400"><span>Discovered links</span><strong className="text-white">{data.topology.length}</strong></div><div className="h-px bg-white/7"/><div className="flex justify-between text-sm text-slate-400"><span>Down devices</span><strong className={offline.length ? 'text-rose-300':'text-emerald-300'}>{offline.length}</strong></div></div></article><article className="panel overflow-hidden"><header className="border-b border-white/7 p-4"><p className="label">Service impact</p></header>{offline.length ? <div className="divide-y divide-white/[.06]">{offline.map(device=><div key={device.id} className="flex items-center gap-3 p-4"><span className="size-2 rounded-full bg-rose-400 shadow-[0_0_8px_#fb7185]"/><div><p className="text-sm font-medium text-slate-200">{device.hostname}</p><p className="text-xs text-slate-500">{device.ipAddress}</p></div></div>)}</div> : <div className="grid place-items-center gap-2 p-8 text-center text-sm text-slate-500"><CircleCheck className="text-emerald-400" size={24}/>All visible devices operational</div>}</article></aside>
+    <aside className="min-w-0 space-y-4"><article className="panel p-5"><p className="label">Topology summary</p><div className="mt-4 space-y-3"><div className="flex justify-between text-sm text-slate-400"><span>Devices shown</span><strong className="text-white">{nodes.length} / {allNodes.length}</strong></div><div className="h-px bg-white/7"/><div className="flex justify-between text-sm text-slate-400"><span>Visible links</span><strong className="text-white">{visibleEdges.length}</strong></div><div className="h-px bg-white/7"/><div className="flex justify-between text-sm text-slate-400"><span>Down devices</span><strong className={offline.length ? 'text-rose-300':'text-emerald-300'}>{offline.length}</strong></div></div></article>
+      <article className="panel p-4"><p className="label">Selected device</p>{selected ? <div className="mt-3 space-y-2 text-xs"><p className="break-all font-semibold text-slate-100">{selected.name}</p><p className="text-slate-400">{selected.device?.ipAddress || 'Unmanaged'} · {selected.device?.status || 'unknown'}</p><p className="text-slate-500">{selected.device?.type || 'Unmanaged'} · {selected.device?.location || 'No location'}</p><p className="text-slate-500">{selected.device?.rttMs == null ? 'RTT unavailable' : `RTT ${selected.device.rttMs.toFixed(1)} ms`}</p><div className="border-t border-white/7 pt-2"><p className="mb-1 text-slate-400">Connected ports</p>{data.topology.filter(edge=>edge.source===selected.name||edge.target===selected.name).slice(0,12).map(edge=><p key={edge.id} className="break-all py-1 text-[10px] text-slate-500">{edge.source===selected.name ? `${edge.sourcePort} ↔ ${edge.target} ${edge.targetPort}` : `${edge.targetPort} ↔ ${edge.source} ${edge.sourcePort}`}</p>)}</div></div> : <p className="mt-3 text-xs leading-5 text-slate-500">Select a device in the map to inspect its address, health, location and connected ports.</p>}</article>
+      <article className="rounded-xl border border-sky-400/15 bg-sky-400/[.035] p-4"><p className="text-xs font-semibold text-sky-200">VLAN overlay · not available yet</p><p className="mt-2 text-xs leading-5 text-slate-400">Current telemetry does not report VLAN membership. VLAN configuration is stored as draft plans only, so this graph will not imply VLANs until membership data is collected.</p></article>
+      <article className="panel overflow-hidden"><header className="border-b border-white/7 p-4"><p className="label">Service impact</p></header>{offline.length ? <div className="max-h-72 divide-y divide-white/[.06] overflow-auto">{offline.map(device=><div key={device.id} className="flex items-center gap-3 p-3"><span className="size-2 shrink-0 rounded-full bg-rose-400 shadow-[0_0_8px_#fb7185]"/><div className="min-w-0"><p className="truncate text-sm font-medium text-slate-200">{device.hostname}</p><p className="text-xs text-slate-500">{device.ipAddress}</p></div></div>)}</div> : <div className="grid place-items-center gap-2 p-8 text-center text-sm text-slate-500"><CircleCheck className="text-emerald-400" size={24}/>All visible devices operational</div>}</article>
+    </aside>
   </section>
 }
 

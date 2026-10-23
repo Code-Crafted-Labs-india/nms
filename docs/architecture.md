@@ -186,9 +186,16 @@ than five minutes, resolves local and remote names against `devices`, and
 upserts visible edges into `network_topology`. It derives the local port from
 the LLDP local port field or the second component of the Telegraf row index.
 Unresolved neighbors are skipped. Edges not refreshed in five minutes are
-deleted; `network_topology` is therefore a current graph, not a topology event
-history. Devices need LLDP enabled and readable with the configured SNMP
-credentials.
+deleted except for synthetic mock-to-mock edges seeded at middleware startup;
+`network_topology` is therefore a current graph, not a topology event history.
+Devices need LLDP enabled and readable with the configured SNMP credentials.
+
+The dashboard renders inventory and discovered endpoints in role lanes and
+supports search by hostname, address, or location plus role and health filters.
+The graph uses a scrollable SVG canvas so larger inventories do not collapse
+into one fixed-size ring. VLAN membership is not present in the topology payload:
+VLAN and switchport operations currently exist only as saved command drafts, so
+the UI labels VLAN overlays unavailable instead of fabricating membership.
 
 ## 5. Database model and data ownership
 
