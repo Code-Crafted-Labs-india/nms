@@ -13,9 +13,10 @@ import {
   type InventoryDevice, type DeviceDetail, type DeviceAlarm, type DeviceInterface,
   type DeviceModel, type DevicePayload, type AuditEvent, type MonitoringMode, type MonitoringModeState,
   type ConfigurationPlan, type ConfigurationPlanRequest, type ConfigurationDevice,
+  type OpManagerDevicePage,
 } from './api'
 
-type View = 'overview' | 'topology' | 'alerts' | 'inventory' | 'configuration' | 'audit'
+type View = 'overview' | 'topology' | 'alerts' | 'inventory' | 'configuration' | 'audit' | 'opmanager'
 const emptyDashboard: DashboardData = {
   generatedAt: '', overview: { monitored: 0, online: 0, offline: 0, openAlerts: 0 },
   devices: [], events: [], latency: [], cpu: [], memory: [], topology: [],
@@ -198,6 +199,71 @@ function AuditView() {
       </tr>)}</tbody></table>
       {!events.length&&!error&&<div className="grid place-items-center gap-3 p-12 text-sm text-slate-500"><ClipboardList size={25}/>No audit events recorded yet</div>}
     </div>}
+  </section>
+}
+
+function OpManagerInventoryView() {
+  const [page, setPage] = useState(1)
+  const [result, setResult] = useState<OpManagerDevicePage|null>(null)
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState('')
+
+  const load = useCallback(async () => {
+    setLoading(true)
+    try {
+      setResult(await dashboardApi.opManagerDevices(page))
+      setError('')
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : 'OpManager inventory could not be loaded.')
+    } finally {
+      setLoading(false)
+    }
+  }, [page])
+
+  useEffect(() => { void load() }, [load])
+
+  const totalPages = Math.max(1, Math.ceil((result?.total ?? 0) / (result?.page_size ?? 50)))
+  return <section className="panel overflow-hidden">
+    <header className="flex flex-wrap items-center justify-between gap-3 border-b border-white/7 px-5 py-4">
+      <div><p className="label">Commercial NMS · read only</p><h2 className="mt-1 font-semibold text-white">OpManager device inventory</h2></div>
+      <button onClick={() => void load()} disabled={loading} className="inline-flex items-center gap-2 rounded-lg border border-white/10 px-3 py-2 text-xs text-slate-400 hover:text-white disabled:opacity-50">
+        <RefreshCw size={14} className={loading ? 'animate-spin' : ''}/> Refresh
+      </button>
+    </header>
+    <div className="border-b border-white/[.055] bg-sky-400/[.035] px-5 py-3 text-xs leading-5 text-slate-400">
+      Data is fetched live from OpManager. This view does not edit or copy devices into the prototype inventory.
+    </div>
+    {error && <div role="alert" className="m-5 rounded-lg border border-amber-400/20 bg-amber-400/[.045] p-3 text-sm text-amber-200">{error}</div>}
+    {loading && !result ? <p className="p-8 text-sm text-slate-500">Loading OpManager devices…</p> : result && <>
+      <div className="overflow-x-auto">
+        <table className="w-full min-w-[760px] text-left text-sm">
+          <thead className="bg-black/10 text-[11px] uppercase tracking-wider text-slate-500"><tr>
+            <th className="px-5 py-3">Device</th><th className="px-5 py-3">Address</th><th className="px-5 py-3">Vendor / model</th>
+            <th className="px-5 py-3">Category</th><th className="px-5 py-3">Interfaces</th><th className="px-5 py-3">Status</th>
+          </tr></thead>
+          <tbody>{result.devices.map(device => {
+            const status = device.statusStr || 'Unknown'
+            const tone = status.toLowerCase() === 'clear' ? 'text-emerald-300' : /critical|trouble|down/i.test(status) ? 'text-rose-300' : 'text-amber-200'
+            return <tr key={device.id || String(device.moid) || device.deviceName} className="border-t border-white/[.055]">
+              <td className="px-5 py-3"><div className="font-medium text-slate-200">{device.displayName || device.deviceName || '—'}</div><div className="mt-0.5 font-mono text-[10px] text-slate-600">{device.deviceName}</div></td>
+              <td className="px-5 py-3 font-mono text-xs text-slate-400">{device.ipaddress || '—'}</td>
+              <td className="px-5 py-3 text-slate-300">{[device.vendorName, device.type].filter(Boolean).join(' · ') || '—'}</td>
+              <td className="px-5 py-3 text-slate-400">{device.category || '—'}</td>
+              <td className="px-5 py-3 text-slate-400">{device.interfaceCount}</td>
+              <td className="px-5 py-3"><span className={tone}>{status}{device.isSuppressed ? ' · suppressed' : ''}</span></td>
+            </tr>
+          })}</tbody>
+        </table>
+        {!result.devices.length && <div className="p-10 text-center text-sm text-slate-500">OpManager returned no devices on this page.</div>}
+      </div>
+      <footer className="flex items-center justify-between border-t border-white/8 px-4 py-3">
+        <span className="text-xs text-slate-500">{result.total} devices · Page {result.page} of {totalPages}</span>
+        <div className="flex gap-2">
+          <button disabled={page <= 1 || loading} onClick={() => setPage(value => value - 1)} className="rounded-lg border border-white/8 px-3 py-1.5 text-xs text-slate-400 disabled:opacity-40">Previous</button>
+          <button disabled={page >= totalPages || loading} onClick={() => setPage(value => value + 1)} className="rounded-lg border border-white/8 px-3 py-1.5 text-xs text-slate-400 disabled:opacity-40">Next</button>
+        </div>
+      </footer>
+    </>}
   </section>
 }
 
@@ -742,6 +808,7 @@ export default function App() {
     {id:'configuration',label:'Switch configuration',icon:<Settings2 size={18}/>},
     {id:'alerts',label:'Active alerts',icon:<AlertTriangle size={18}/>,count:data.overview.openAlerts},
     {id:'audit',label:'Audit events',icon:<ClipboardList size={18}/>},
+    {id:'opmanager',label:'OpManager inventory',icon:<Server size={18}/>},
   ]
 
   return (
@@ -804,7 +871,7 @@ export default function App() {
             <div>
               <p className="mb-2 flex items-center gap-2 text-xs font-semibold uppercase tracking-[.18em] text-emerald-400"><Activity size={13}/>{view==='configuration'?'Change planning':'Live telemetry'}</p>
               <h1 className="text-2xl font-semibold tracking-tight text-white">{nav.find(item=>item.id===view)?.label}</h1>
-              <p className="mt-1 text-xs text-slate-500">{view==='configuration'?'Draft planning only · no commands are sent to devices':monitoringMode==='test'?`Test mode · ${modeState?.testDeviceCount??'…'} monitored mock devices`:monitoringMode==='production'?`Production mode · ${modeState?.liveDeviceCount??'…'} monitored real devices`:'Reading active device mode…'}</p>
+              <p className="mt-1 text-xs text-slate-500">{view==='configuration'?'Draft planning only · no commands are sent to devices':view==='opmanager'?'Read-only view · data from the commercial NMS':monitoringMode==='test'?`Test mode · ${modeState?.testDeviceCount??'…'} monitored mock devices`:monitoringMode==='production'?`Production mode · ${modeState?.liveDeviceCount??'…'} monitored real devices`:'Reading active device mode…'}</p>
             </div>
             <p className="text-xs text-slate-600">Last synchronized {formatTime(data.generatedAt)}</p>
           </div>
@@ -815,6 +882,7 @@ export default function App() {
           {view==='configuration'&&<ConfigurationView/>}
           {view==='alerts'&&<Alerts events={data.events}/>}
           {view==='audit'&&<AuditView/>}
+          {view==='opmanager'&&<OpManagerInventoryView/>}
         </main>
       </div>
     </div>

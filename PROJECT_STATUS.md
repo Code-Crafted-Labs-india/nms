@@ -101,63 +101,14 @@ The physical link discovery and visualization lifecycle operates completely auto
 
 ---
 
-## 📊 5. Scope-to-Implementation Progress Tracker
+## 5. Active requirement scope
 
-Based on [`docs/product-future-scope.md`](docs/product-future-scope.md):
-
-### Release A — Inventory and Monitoring Foundation
-
-| Scope Item | Priority | Status | Implementation |
-|---|---|---|---|
-| Add-device form and credential-profile APIs | P0 | 🟡 Partial | Inventory provides Add/Edit/Delete forms backed by authenticated CRUD endpoints and the supported-model catalog. Monitored inventory now generates Telegraf targets for SNMPv1/v2c. Credential profiles, protected secret storage, SNMPv3, and connectivity preflight remain pending. |
-| Switch configuration planning | P0 | 🟡 Draft-only | The configuration view reads recent SNMP `sysDescr`/`sysObjectID`, detects ATS with a version-qualified profile ID, ATS-3900-24P6X AOS 3.3.1.1, or Routing Switch V3.3.1, and selects the matching CLI preview profile. The API revalidates the profile before saving and records the detected OS/version with the draft. No device connection or apply action, protected write credentials, backup, or rollback. Other Type 3 models and versions remain blocked. |
-| Fleet inventory with pagination and filters | P0 | ✅ Done | `GET /api/v1/devices` — paginated (50/page), filterable by status, type, hostname/IP search. |
-| Device overview tab | P0 | ✅ Done | `GET /api/v1/devices/{id}` — identity, reachability, CPU/mem, alarm count. |
-| Device interfaces tab | P0 | ✅ Done | Returns per-interface oper/admin/speed/rx/tx/errors/optical in device detail response. |
-| Device events/alarms tab | P0 | ✅ Done | Returns last 50 alarms (resolved + open) per device. Manual resolve via `POST /api/v1/alarms/{id}/resolve`. |
-| Audit trail for device administration | P0 | 🟡 Partial | Metadata-only login/authentication and API activity events are stored in `audit_events`; authenticated operators can read paginated events at `GET /api/v1/audit`. Shared bootstrap authentication means events identify only `bootstrap-admin`, not a person. Field-level before/after diffs, SIEM forwarding, retention controls, and tamper protection remain pending. |
-| Canonical device/interface telemetry normalization | P0 | 🟡 Partial | Telegraf → TimescaleDB raw. Go discovery normalizes devices. Interface join in alarm queries exists but not fully canonical. |
-| Inventory-driven ICMP and SNMP polling | P0 | 🟡 Partial | ICMP sweeps are inventory-driven (`ping` pkg). Telegraf targets for SNMPv1/v2c are generated from monitored inventory and reloaded by its config watcher. Protected credentials, SNMPv3, generated-config validation/rollback, and vendor CPU/memory profiles are not implemented. |
-| Stateful alarm schema with fingerprints, transitions, auto-recovery | P0 | 🟡 Partial | `resolved`/`resolved_at` lifecycle and recovery paths exist. Only CPU/memory use a threshold clear margin. Deterministic fingerprints are not enforced; deduplication uses read-before-write. Fresh-schema alarm row IDs also need reconciliation. |
-| Device-down alarm (P0 #1) | P0 | ✅ Done | `DeviceDownStrategy` checks all linked ICMP samples in a fixed one-minute window; any success clears the event and an empty window does not alarm. |
-| Interface-down alarm (P0 #2) | P0 | 🟡 Partial | `LinkStateStrategy` checks normalized rows joined through `interfaces`; checked-in Telegraf writes raw rows without this relationship. |
-| High memory usage alarm (P0 #3) | P0 | ✅ Done | `HighMemoryUtilizationStrategy` — warning=80%, critical=95%, hysteresis, auto-clear. |
-| SNMP communication failure alarm (P0 #4) | P0 | ✅ Done | `SNMPCommunicationFailureStrategy` — stale window=5min, checks `snmp_device_health` + `snmp_interface`, auto-clear. |
-| Device reachability monitoring (P0 #5) | P0 | ✅ Done | `ping` package + `device_health_metrics` hypertable with ICMP status, RTT, packet loss. |
-| High CPU alarm (#3 CPU path) | P0 | 🟡 Partial | Strategy threshold=85%, clears at 80%; it reads `device_health_metrics.cpu_utilization`, which current configured writers do not populate. |
-
-### Release B — Operator Workflows
-
-| Scope Item | Priority | Status | Notes |
-|---|---|---|---|
-| Dashboard builder and widget catalog | P1 | 🔴 Not started | Fixed overview layout only; no drag-and-drop builder yet. |
-| Interface utilization (P1 #6) | P1 | 🟡 Partial | Telegraf now polls IF-MIB 64-bit counters and high-speed capacity where supported. Device detail calculates live receive/transmit rates from two recent samples, detects 32-bit wrap and counter resets, and shows utilization meters when capacity is known. Historical utilization graphs and vendor/device validation remain pending. |
-| CRC/error monitoring (P1 #7) | P1 | 🟡 Partial | Error and discard columns captured in DB; graphing and alarm rule not yet implemented. |
-| Optical/SFP monitoring (P1 #8) | P1 | 🟡 Partial | `optical_rx_dbm`/`optical_tx_dbm` columns exist and surface in device detail; alarm rule not yet written. |
-| Alarm acknowledgement and suppression lifecycle | P1 | 🟡 Partial | Manual resolve implemented. Acknowledgement, assignment, suppression, and maintenance window not yet. |
-| Notification policies and delivery | P1 | 🔴 Not started | No notification adapter yet (no email/webhook/SMS). |
-| SNMP trap/syslog ingestion | P1 | 🔴 Not started | Roadmap Phase 2 item. |
-| Syslog collection (P1 #10) | P1 | 🔴 Not started | Infrastructure not yet in place. |
-| STP topology change alert (P1 #11) | P1 | 🔴 Not started | Requires SNMP trap receiver. |
-| Loop detection (P1 #12) | P1 | 🔴 Not started | |
-| Broadcast storm alert (P1 #13) | P1 | 🔴 Not started | |
-| Fiber cut detection (P1 #17) | P1 | 🔴 Not started | Requires optical + topology correlation. |
-| Interface speed/duplex mismatch (P1 #19) | P1 | 🟡 Partial | `AdminOperMismatchStrategy` covers admin/oper. Speed/duplex mismatch needs EtherLike-MIB OIDs. |
-
-### Release C — Scale and Automation
-
-| Scope Item | Priority | Status | Notes |
-|---|---|---|---|
-| Topology enhancements (force-directed, minimap, filters) | P1 | 🔴 Not started | Basic SVG topology exists; no layout modes or filters. |
-| Discovery rules and dynamic groups | P2 | 🔴 Not started | |
-| Reports and SLA views | P2 | 🔴 Not started | |
-| Port security violation alert (#14) | P2 | 🔴 Not started | |
-| DHCP snooping alert (#15) | P2 | 🔴 Not started | |
-| ARP inspection alert (#16) | P2 | 🔴 Not started | |
-| Unauthorized login alert (#18) | P2 | 🔴 Not started | |
-| NTP sync alert (#9) | P2 | 🔴 Not started | `ntp_skew_seconds` column exists in `device_health_metrics`. |
-
----
+The active scope is limited to clauses 1–13 of the supplied PRL specification.
+The canonical clause-by-clause compliance status and remaining work are in
+[docs/client-requirements-gap-plan.md](docs/client-requirements-gap-plan.md).
+No former product wishlist or roadmap item outside those clauses is an active
+requirement or delivery commitment. The feature and API sections below describe
+existing implementation only.
 
 ## 🌐 6. REST API Surface
 
@@ -228,9 +179,10 @@ duplicates.
 
 ---
 
-## 9. Future work
+## 9. Scope boundary
 
-The full intended product scope and sequencing belong in
-[`docs/product-future-scope.md`](docs/product-future-scope.md). This status file
-records implementation state and known constraints; planned items there are
-not delivered capabilities.
+Only the pasted PRL specification clauses 1–13 define active requirements.
+Items outside those clauses are out of scope unless PRL approves them in
+writing. See [docs/product-future-scope.md](docs/product-future-scope.md) for
+the current scope statement and [docs/client-requirements-gap-plan.md](docs/client-requirements-gap-plan.md)
+for the compliance matrix.

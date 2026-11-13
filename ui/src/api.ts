@@ -14,6 +14,13 @@ export type InventoryDevice = {
 }
 export type InventoryResponse = { devices: InventoryDevice[]; total: number; page: number; pageSize: number; totalPages: number }
 export type DeviceModel = { series: string; modelName: string }
+export type OpManagerDevice = {
+  id: string; moid: number; deviceName: string; displayName: string; ipaddress: string
+  vendorName: string; type: string; category: string; statusStr: string
+  statusNum: string; interfaceCount: number; isSNMP: boolean; isSuppressed: boolean
+}
+export type OpManagerDevicePage = { devices: OpManagerDevice[]; total: number; page: number; page_size: number }
+
 export type AuditEvent = {
   id: number; occurred_at: string; actor: string; action: string
   outcome: 'success'|'failure'; method: string; path: string; status_code: number
@@ -97,6 +104,9 @@ export const dashboardApi = {
   deviceDetail(id: number) { return request<DeviceDetail>(`/api/v1/devices/${id}`) },
   resolveAlarm(id: number) { return request<void>(`/api/v1/alarms/${id}/resolve`, { method: 'POST' }) },
   audit(page = 1, pageSize = 50) { return request<AuditResponse>(`/api/v1/audit?page=${page}&page_size=${pageSize}`) },
+  opManagerDevices(page = 1, pageSize = 50) {
+    return request<OpManagerDevicePage>(`/api/v1/integrations/opmanager/devices?page=${page}&page_size=${pageSize}`)
+  },
   configurationPlans() { return request<{plans:ConfigurationPlan[]}>('/api/v1/configuration/plans') },
   configurationDevices() { return request<{devices:ConfigurationDevice[]}>('/api/v1/configuration/devices') },
   createConfigurationPlan(payload:ConfigurationPlanRequest) { return request<{id:number;hostname:string;profile:string;operation:string;commands:string[];status:'draft'}>('/api/v1/configuration/plans',{method:'POST',body:JSON.stringify(payload)}) },
