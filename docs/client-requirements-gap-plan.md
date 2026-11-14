@@ -24,6 +24,12 @@ actions below are implementation guidance for those clauses, not new
 requirements or commitments. “Partial” means some adjacent capability exists,
 not that the full requirement is met.
 
+The source transcription and coverage check are in
+[`prl-requirements-source.md`](prl-requirements-source.md). The matrix below
+covers every supplied clause and subclause but summarizes rather than repeats
+the source wording. The source supplied on 2026-11-14 ends mid-word in clause
+13; obtain the complete original before final compliance submission.
+
 ## Status key
 
 - **No** — no implemented capability meeting the requirement was found.
@@ -166,3 +172,37 @@ audit trail, rollback, and device-matrix evidence; PRL accepts each capability.
 6. Required configuration domains, approval/rollback rules, firmware
    sourcing/validation, and change windows.
 7. Formal acceptance thresholds and procurement decision for custom software.
+
+## Progress and timeline checkpoint — 2026-11-14
+
+- **Requirements transcription:** all numbered clauses and subclauses in the
+  supplied text are represented in the gap matrix. A source transcription was
+  added; clause 13's final sentence remains incomplete in the supplied source.
+- **Compliance assessment:** initial code/document review and candidate
+  evaluation baseline are recorded. No clause is promoted to “Yes”; hardware,
+  vendor support, procurement eligibility, scale, and device-lab evidence are
+  still missing.
+- **Commercial candidate:** OpManager Enterprise with NCM and NetFlow Analyzer
+  is a candidate for qualification, not an approved selection. A live read-only
+  inventory integration has been started on the
+  `feat/commercial-nms-adoption` branch; it is not merged and remains subject
+  to a credentialed lab check. On 2026-11-14, `go test ./...` passed in Ubuntu
+  with `CGO_ENABLED=0`, and the UI production build passed with Bun. The
+  OpManager client tests use a mocked API. No lab credentials are configured,
+  so validation against a live OpManager instance remains pending.
+- **Next sequence:** (1) recover the complete clause 13 source and get PRL's
+  eligibility decision; (2) obtain the switch/firmware and RHEL inventory;
+  (3) confirm vendor compatibility, add-on licensing, and support in writing;
+  (4) test the integration and run a product proof of concept; (5) update
+  compliance statuses only from recorded evidence.
+- **Schedule:** the existing indicative ranges remain 2–4 weeks for the
+  eligibility/scope gate, 4–6 weeks for device/platform discovery, and 4–12
+  weeks for commercial selection/procurement (partly overlapping). From
+  kickoff, the commercial deployment and multi-campus acceptance range remains
+  8–12 months, subject to procurement, lab access, PRL inputs, and confirmed
+  scope. These are estimates, not commitments; rebaseline after Gate 0 and
+  discovery.
+- **Branch discipline:** each new capability starts on a `feat/...` branch.
+  Do not merge a branch until its implementation is complete, relevant tests
+  pass, and the user has reviewed the result. Before each merge, remind the
+  user to test and merge the finished branch.

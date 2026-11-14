@@ -1,6 +1,6 @@
 # 📑 PROJECT_STATUS.md
 
-> Last updated: 2026-10-12. Scope source: [`docs/product-future-scope.md`](docs/product-future-scope.md)
+> Last updated: 2026-11-14. Scope source: [`docs/product-future-scope.md`](docs/product-future-scope.md)
 >
 > Architecture documentation: [`docs/architecture.md`](docs/architecture.md) is
 > the code-aligned description of current runtime behavior and is the place to
@@ -109,6 +109,21 @@ The canonical clause-by-clause compliance status and remaining work are in
 No former product wishlist or roadmap item outside those clauses is an active
 requirement or delivery commitment. The feature and API sections below describe
 existing implementation only.
+
+### Current progress checkpoint (2026-11-14)
+
+- The supplied requirements cover clauses 1–9, 10a–10i, 11a–11b, 12a–12c,
+  and 13. The gap matrix analyzes every item. A source transcription and
+  completeness note are in [`docs/prl-requirements-source.md`](docs/prl-requirements-source.md).
+- The supplied source ends mid-word in clause 13. Obtain the complete original
+  before finalizing a compliance response.
+- `feat/commercial-nms-adoption` contains an in-progress, uncommitted,
+  read-only OpManager inventory integration. Go tests passed in Ubuntu with
+  `CGO_ENABLED=0`, and the UI production build passed with Bun. The OpManager
+  client is covered by mocked HTTP tests; live lab validation remains pending,
+  so the branch is not merged.
+- Keep new capabilities on dedicated `feat/...` branches. Merge only finished
+  branches after checks pass; remind the operator to test and merge each one.
 
 ## 🌐 6. REST API Surface
 
