@@ -14,6 +14,7 @@ import (
 	"nms-middleware/db"
 	"nms-middleware/discovery"
 	"nms-middleware/handlers"
+	"nms-middleware/opmanager"
 	"nms-middleware/ping"
 	"nms-middleware/telegrafconfig"
 	"nms-middleware/topology"
@@ -25,9 +26,10 @@ type config struct {
 }
 
 type application struct {
-	config config
-	logger *slog.Logger
-	db     *db.DB
+	config    config
+	logger    *slog.Logger
+	db        *db.DB
+	opManager *opmanager.Client
 }
 
 func main() {
@@ -54,6 +56,16 @@ func main() {
 		logger = slog.New(slog.NewTextHandler(os.Stdout, nil))
 	}
 
+	opManagerClient, err := opmanager.NewClient(
+		os.Getenv("OPMANAGER_BASE_URL"),
+		os.Getenv("OPMANAGER_API_KEY"),
+		nil,
+	)
+	if err != nil {
+		logger.Error("OpManager integration configuration rejected", "error", err)
+		os.Exit(1)
+	}
+
 	// Boot up connection layer
 	database, err := db.InitPool(cfg.dbDsn, logger)
 	if err != nil {
@@ -62,9 +74,10 @@ func main() {
 	}
 
 	app := &application{
-		config: cfg,
-		logger: logger,
-		db:     database,
+		config:    cfg,
+		logger:    logger,
+		db:        database,
+		opManager: opManagerClient,
 	}
 	sessions.SetAuditRecorder(func(ctx context.Context, actor, action, outcome, method, path string, status int) error {
 		writeCtx, cancel := context.WithTimeout(ctx, 2*time.Second)
@@ -145,6 +158,10 @@ func main() {
 	// Alarm management: manual resolve
 	mux.Handle("POST /api/v1/alarms/{id}/resolve", audited("alarms.resolve", handlers.ResolveAlarmHandler(database)))
 	mux.Handle("GET /api/v1/audit", audited("audit.read", handlers.AuditEventsHandler(database)))
+	mux.Handle("GET /api/v1/integrations/opmanager/devices", audited(
+		"integrations.opmanager.devices.read",
+		handlers.OpManagerDevicesHandler(app.opManager),
+	))
 	mux.Handle("GET /api/v1/configuration/devices", audited("configuration.devices.read", handlers.ConfigurationDevicesHandler(database)))
 	mux.Handle("OPTIONS /api/v1/configuration/devices", handlers.RequestLogger(handlers.PreflightHandler()))
 	mux.Handle("GET /api/v1/configuration/plans", audited("configuration.plans.read", handlers.ConfigurationPlansHandler(database)))

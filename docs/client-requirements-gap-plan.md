@@ -17,10 +17,18 @@ or select a supported OEM/enterprise NMS as the primary platform and position
 NMS only as an approved supplemental component. If PRL approves NMS,
 the other gaps still represent a substantial product and deployment program.
 
-This assessment is based on the provided client text and the code/docs in this
-repository, especially `PROJECT_STATUS.md`, `docs/product-future-scope.md`,
-`docs/real-world-deployment.md`, and `docs/ui-security-baseline.md`. “Partial”
-means some adjacent capability exists, not that the full requirement is met.
+This assessment uses only clauses 1–13 in the supplied client specification as
+the active requirements baseline. Related code and deployment documents are
+evidence about current behavior, not additional scope. Suggested technical
+actions below are implementation guidance for those clauses, not new
+requirements or commitments. “Partial” means some adjacent capability exists,
+not that the full requirement is met.
+
+The source transcription and coverage check are in
+[`prl-requirements-source.md`](prl-requirements-source.md). The matrix below
+covers every supplied clause and subclause but summarizes rather than repeats
+the source wording. The source supplied on 2026-11-14 ends mid-word in clause
+13; obtain the complete original before final compliance submission.
 
 ## Status key
 
@@ -41,7 +49,7 @@ means some adjacent capability exists, not that the full requirement is met.
 | **3. Unified monitoring and post-audit system** | **Partial** | Dashboard, inventory, telemetry, and alarms are centralized. Metadata-only login/authentication and API activity are now written to PostgreSQL and readable in the Audit Events UI and `GET /api/v1/audit`. The shared bootstrap login identifies all successful operators as `bootstrap-admin`; there are no field-level before/after records, retention controls, SIEM forwarding, or tamper protection. | Add named-user identity and roles, field-level change records for administrative operations, SIEM export, retention/access controls, and tamper-evident or protected storage. Define a PRL audit event/retention policy and verify coverage against each operation. |
 | **4. Preconfigured policies, designated personnel, roles/privileges** | **No** | Authentication is a shared bootstrap-token/session model. No individual accounts, role mapping, policy lifecycle, approval, or role-based privilege enforcement exists. | Implement OIDC/SAML and MFA, user/group synchronization, roles (for example admin, network engineer, operator, auditor, viewer), granular authorization, policy templates, activation/deactivation approval, effective-policy view, and audit history. Define who can create, approve, activate, and roll back policies. |
 | **5. Topology with traffic, performance, access terminals** | **Partial** | Basic LLDP topology is rendered and device health/performance is shown elsewhere. No evidence of traffic overlays, terminal/client discovery, end-to-end campus topology validation, or topology-based navigation for all requested data. | Normalize device/site/link identities; add campus/site hierarchy, edge status, per-link utilization and performance overlays, access-terminal/MAC/ARP/DHCP correlation where available, filters/search/drilldown, and stale-data indication. Agree what “access terminals” means and which device protocols/data sources expose them. |
-| **6. Highlight important devices/links; rates, bandwidth, link colors** | **Partial** | Basic topology and interface counters exist, but important-device/link annotations, configurable link colors, and reliable in/out bit-rate and capacity utilization are not complete. The status doc says utilization percentage is not exposed. | Add operator-managed criticality/pinning and link annotations; calculate bps and utilization from 64-bit counters, elapsed sample time, and interface speed with wrap/reset handling; provide configurable state/load color bands and legends. Validate vendor counter behavior. |
+| **6. Highlight important devices/links; rates, bandwidth, link colors** | **Partial** | Basic topology and interface counters exist. Device detail calculates live receive/transmit rates and utilization percentages from recent samples, with counter wrap/reset handling. The topology does not yet provide important-device/link annotations, configurable link colors, or traffic overlays. | Add operator-managed criticality/pinning and link annotations; show the existing interface rates and utilization in topology views; provide configurable state/load color bands and legends. Validate vendor counter behavior. |
 | **7. All switches across four campuses / MLLN** | **Partial; scale unverified** | Telegraf targets are generated from monitored inventory for SNMPv1/v2c; current seed inventory is demo data. There is no subnet discovery, multi-campus scale result, or service-provider MLLN validation. | Confirm routed reachability and firewall/ACLs from the NMS to every campus management subnet over the MLLN. Add campus/site hierarchy, operator-approved discovery, topology boundaries, per-campus views, and scale/latency validation at the full device/interface count. Coordinate MLLN routing, MTU, latency, and availability with the provider. |
 | **8. System-wide VLAN configuration and monitoring** | **Partial (draft only)** | The UI can save VLAN-create and access/trunk membership command drafts for ATS and Routing Switch CLI V3.3.1 profiles. It does not apply them, monitor VLAN state, or provide a system-wide staged deployment. The Type 2 bundle is not yet mapped to a model/firmware profile. | Qualify exact syntax against hardware, then add secure device execution, prechecks, approval, per-device results, post-change verification, rollback, and VLAN inventory/monitoring. Confirm whether system-wide means a multi-device staged rollout and which models are covered. |
 | **9. Real-time alarm and notifications (topology, trap, syslog, script, email)** | **Partial** | Several polling-based alarm strategies and an active-alert view exist. Email/webhook delivery, SNMP trap reception, syslog ingestion, custom-script actions, and customizable email templates are not implemented. | Add event ingestion with authentication/rate limits, incident lifecycle (acknowledge/assign/suppress/resolve), severity mapping, deduplication, notification policies, delivery retries/status, templates, and safe action integrations. Ensure topology reflects active alarms and events can be correlated across devices. |
@@ -53,7 +61,7 @@ means some adjacent capability exists, not that the full requirement is met.
 | **10f. Configuration-change and firmware history** | **No** | No config change workflow, firmware deployment, or firmware history exists. | Add change records linked to approvals, config diffs, execution results, firmware version before/after, and rollback result. Build change windows and maintenance protections. Firmware actions require a model/image compatibility and signed image validation process. |
 | **10g. In-depth inventory-planning reports** | **No** | No report builder or scheduled inventory/capacity reports were found. | Define required reports and filters with PRL; add CSV/PDF/export, scheduled delivery, access control, historical inventory, and capacity trends. Audit exports. |
 | **10h. Single/multiple device firmware downloads** | **No** | Firmware repository, compatibility validation, image distribution, and upgrade orchestration are absent. | Confirm whether “downloading” means retrieving firmware images or upgrading devices. Add approved image catalog, checksums/signatures, compatibility gates, bandwidth/concurrency controls, staged rollout, progress, failure recovery, and maintenance-window approvals. This is high-risk device automation and should be separately accepted. |
-| **10i. Port-level analysis** | **Partial** | Interface status, counters, errors, and some detail are present. Derived utilization graphs, error-rate analysis, VLAN/peer/duplex detail and complete per-port workflows remain incomplete. | Finish canonical interface model and per-port time-series; derive utilization and counter rates; add CRC/errors/discards/flaps, duplex/speed, peer/VLAN, filters, comparisons, thresholds, and export. |
+| **10i. Port-level analysis** | **Partial** | Interface status, counters, errors, and device-detail live receive/transmit rates and utilization meters are present. Historical utilization graphs, error-rate analysis, VLAN/peer/duplex detail and complete per-port workflows remain incomplete. | Finish canonical interface model and per-port time-series; add historical utilization and error-rate views, CRC/errors/discards/flaps, duplex/speed, peer/VLAN, filters, comparisons, thresholds, and export. |
 | **11a. Unified management of switches** | **Partial** | Central monitoring and inventory exist, but only limited supported-model catalog behavior is implemented; no uniform switch configuration plane exists. | Establish vendor/model/firmware capability profiles. Unify inventory, credentials, telemetry, config, change control, and outcomes behind a capability-based adapter model. Maintain explicit unsupported-feature reporting. |
 | **11b. Security policy configuration and event analysis** | **No** | No switch security-policy deployment or security-event analytics are implemented. | Define policy scope (ACL, port security, 802.1X, DHCP snooping, DAI, etc.), event sources, roles, workflow, and audit requirements. Implement only against vendor-supported interfaces with approval/rollback. Integrate traps/syslog and SIEM. |
 | **12a. Customizable reports** | **No** | Fixed dashboards are present; report authoring/scheduling is not. | Build a controlled report catalog and configurable filters/columns/time ranges, exports, schedules, access controls, and audit. Avoid arbitrary client-supplied SQL. |
@@ -164,3 +172,37 @@ audit trail, rollback, and device-matrix evidence; PRL accepts each capability.
 6. Required configuration domains, approval/rollback rules, firmware
    sourcing/validation, and change windows.
 7. Formal acceptance thresholds and procurement decision for custom software.
+
+## Progress and timeline checkpoint — 2026-11-14
+
+- **Requirements transcription:** all numbered clauses and subclauses in the
+  supplied text are represented in the gap matrix. A source transcription was
+  added; clause 13's final sentence remains incomplete in the supplied source.
+- **Compliance assessment:** initial code/document review and candidate
+  evaluation baseline are recorded. No clause is promoted to “Yes”; hardware,
+  vendor support, procurement eligibility, scale, and device-lab evidence are
+  still missing.
+- **Commercial candidate:** OpManager Enterprise with NCM and NetFlow Analyzer
+  is a candidate for qualification, not an approved selection. A live read-only
+  inventory integration has been started on the
+  `feat/commercial-nms-adoption` branch; it is not merged and remains subject
+  to a credentialed lab check. On 2026-11-14, `go test ./...` passed in Ubuntu
+  with `CGO_ENABLED=0`, and the UI production build passed with Bun. The
+  OpManager client tests use a mocked API. No lab credentials are configured,
+  so validation against a live OpManager instance remains pending.
+- **Next sequence:** (1) recover the complete clause 13 source and get PRL's
+  eligibility decision; (2) obtain the switch/firmware and RHEL inventory;
+  (3) confirm vendor compatibility, add-on licensing, and support in writing;
+  (4) test the integration and run a product proof of concept; (5) update
+  compliance statuses only from recorded evidence.
+- **Schedule:** the existing indicative ranges remain 2–4 weeks for the
+  eligibility/scope gate, 4–6 weeks for device/platform discovery, and 4–12
+  weeks for commercial selection/procurement (partly overlapping). From
+  kickoff, the commercial deployment and multi-campus acceptance range remains
+  8–12 months, subject to procurement, lab access, PRL inputs, and confirmed
+  scope. These are estimates, not commitments; rebaseline after Gate 0 and
+  discovery.
+- **Branch discipline:** each new capability starts on a `feat/...` branch.
+  Do not merge a branch until its implementation is complete, relevant tests
+  pass, and the user has reviewed the result. Before each merge, remind the
+  user to test and merge the finished branch.

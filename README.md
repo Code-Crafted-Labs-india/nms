@@ -33,9 +33,13 @@ The client-facing response draft, indicative timeline, assumptions, and
 internal delivery checklist are in
 [`docs/client-response-and-delivery-estimate.md`](docs/client-response-and-delivery-estimate.md).
 
-The prioritized operator-product roadmap derived from the supplied NMS
-references is documented in
-[`docs/product-future-scope.md`](docs/product-future-scope.md).
+The commercial product evaluation baseline and qualification checklist are in
+[`docs/commercial-nms-evaluation.md`](docs/commercial-nms-evaluation.md).
+
+The active scope is limited to clauses 1–13 of the supplied PRL
+specification. The authoritative compliance matrix and staged plan are in
+[`docs/client-requirements-gap-plan.md`](docs/client-requirements-gap-plan.md).
+Items outside that specification are out of scope unless PRL approves them.
 
 ### Secure React command center
 
